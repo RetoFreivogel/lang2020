@@ -56,23 +56,17 @@ impl Module{
         }
         None
     }
-    pub fn get_last_fun(&mut self) -> &mut Symbol{
-        for sym in self.context.iter_mut().rev(){
-            if let Kind::Function{..} = sym.kind{
-                return sym;
-            }
-        }
-        panic!("ICE no function defined");        
-    }
 
     pub fn declare_type(&mut self, id: String, typ: Type){
         let kind = Kind::Type;
         self.context.push(Symbol::new(id, typ, kind));
     }
-    pub fn declare_fun(&mut self, id: String, typ: Type, start_block: usize){
-        let kind = Kind::Function{start_block}; //TODO 
+    pub fn declare_fun(&mut self, id: String, typ: Type, start: usize) -> Symbol{
+        let kind = Kind::Function{start_block: start}; //TODO 
         self.offset = 0;
-        self.context.push(Symbol::new(id, typ, kind));
+        let sym = Symbol::new(id, typ, kind);
+        self.context.push(sym.clone());
+        return sym;
     }
 
     pub fn declare_arg(&mut self, id: String, typ: Type, pos: usize){
@@ -176,7 +170,7 @@ impl Type{
             Type::Function{..} => 8,
         }
     }
-    
+
     pub fn unify(&self, other: &Type) -> Option<Type>{
         use Type::*;
         match (self, other){
@@ -196,7 +190,7 @@ impl Type{
         }
     }
 
-    pub fn get_ret(&mut self) -> Type{
+    pub fn get_ret(&self) -> Type{
         if let Type::Function{args:_, ret} = self {
             *ret.clone()
         }else{
@@ -204,7 +198,7 @@ impl Type{
         }
     }
 
-    pub fn get_args(&mut self) -> Vec<Type>{
+    pub fn get_args(&self) -> Vec<Type>{
         if let Type::Function{args, ret:_} = self {
             args.clone()
         }else{

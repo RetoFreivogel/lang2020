@@ -68,6 +68,7 @@ pub struct Parser<I:Read>{
     current: Token,
     tried: TokenSet,
     module: Module,
+    current_fun: Option<Symbol>,
     builder: Builder
 }
 impl<I: std::io::Read> Parser<I>{
@@ -77,6 +78,7 @@ impl<I: std::io::Read> Parser<I>{
             current: Token::Error,
             tried: TokenSet::new(),
             module: Module::new(),
+            current_fun: None,
             builder: Builder::new(),
         };
         p.current = p.lexer.next();
@@ -203,9 +205,9 @@ impl<I: std::io::Read> Parser<I>{
 
         let start = self.builder.new_function(id.clone());
         self.builder.select(start);
-        self.module.declare_fun(id, typ.clone(), start);
+        self.current_fun = Some(self.module.declare_fun(id, typ.clone(), start));
 
-        let args = self.module.get_last_fun().typ.get_args();
+        let args = self.current_fun.as_ref().unwrap().typ.get_args();
         if args.len() != args_id.len(){
             self.mark("Arity mismatch.")?;
         }
@@ -220,7 +222,7 @@ impl<I: std::io::Read> Parser<I>{
     fn funbody(&mut self) -> Parsing<()>{
         if self.accept(Token::Equal){
             let typ1 = self.expr()?;
-            let typ2 = self.module.get_last_fun().typ.get_ret();
+            let typ2 = self.current_fun.as_ref().unwrap().typ.get_ret();
             self.typecheck(&typ1, &typ2)?;
             self.expect(Token::Semi)
         }else{
@@ -294,7 +296,7 @@ impl<I: std::io::Read> Parser<I>{
     fn stmt(&mut self) -> Parsing<()>{
         if self.accept(Token::Return){
             let typ1 = self.expr()?;
-            let typ2 = self.module.get_last_fun().typ.get_ret();
+            let typ2 = self.current_fun.as_ref().unwrap().typ.get_ret();
             self.typecheck(&typ1, &typ2)?;
             self.expect(Token::Semi)?;
             Ok(())
