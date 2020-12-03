@@ -1,3 +1,4 @@
+use crate::module::Ident;
 use crate::module::Type;
 use crate::module::Symbol;
 use std::fmt;
@@ -7,13 +8,13 @@ use std::fmt::Write;
 pub struct Block{
     pub then_block: usize,
     pub else_block: usize,
-    pub name: String,
+    pub name: Option<Ident>,
     pub start_instr: usize,
     pub n_instr: usize,
 }
 
 impl Block{
-    fn new(start_instr: usize, name: String) -> Block{
+    fn new(start_instr: usize, name: Option<Ident>) -> Block{
         Block{
             then_block: 0,
             else_block: 0,
@@ -86,7 +87,15 @@ impl Builder{
     pub fn print(&self, out: &mut String) -> fmt::Result{
         writeln!(out, "BLOCKS")?;
         for b in &self.blocks{
-            write!(out, "{:>16}  {:02}/{:02}  [ ", b.name, b.then_block, b.else_block)?;
+            if b.name.is_some() {
+                write!(out, "{:>16}  ", b.name.as_ref().unwrap())?;
+            }else{
+                write!(out, "{:>16}  ", "")?;
+            }
+            write!(out, "{:02}/{:02}  [ ",
+                b.then_block, 
+                b.else_block
+            )?;
             for instr in &self.instructions[b.start_instr..b.start_instr+b.n_instr]{
                 instr.print(out)?;
             }
@@ -109,14 +118,14 @@ impl Builder{
 
 //Common----------------------------------------
 
-    pub fn new_function(&mut self, name: String) -> usize{
-        let b = Block::new(self.instructions.len(), name);
+    pub fn new_function(&mut self, id: Ident) -> usize{
+        let b = Block::new(self.instructions.len(), Some(id));
         let id = self.blocks.len();
         self.blocks.push(b);
         return id;
     }
     pub fn new_block(&mut self) -> usize{
-        let b = Block::new(self.instructions.len(), String::new());
+        let b = Block::new(self.instructions.len(), None);
         let id = self.blocks.len();
         self.blocks.push(b);
         return id;

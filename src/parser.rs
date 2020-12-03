@@ -7,7 +7,7 @@
 */
 
 
-use crate::module::{Module, Type, Symbol};
+use crate::module::{Module, Type, Symbol, Ident};
 use std::io::Read;
 use crate::builder::Builder;
 use crate::lexer::{LexPos, Lexer, TokenSet, Token};
@@ -28,7 +28,7 @@ pub enum CompileError{
     },
     UndefErr{
         position: LexPos,
-        sym: String
+        id: Ident,
     },
     GeneralErr{
         position: LexPos,
@@ -49,9 +49,9 @@ impl fmt::Display for CompileError{
                 writeln!(f, "{} Type mismatch: Left side is {}. Right side is {}.",
                     position, left, right)
             }
-            CompileError::UndefErr{position, sym} => {
+            CompileError::UndefErr{position, id} => {
                 writeln!(f, "{} Symbol Undefined: '{}'",
-                    position, sym)
+                    position, id)
             }
             CompileError::GeneralErr{position, msg} => {
                 writeln!(f, "{} {}",
@@ -124,12 +124,12 @@ impl<I: std::io::Read> Parser<I>{
         })
     }
 
-    fn lookup(&mut self, id: &str) -> Parsing<Symbol>{
-        let sym = self.module.get_sym(id);
+    fn lookup(&mut self, id: Ident) -> Parsing<Symbol>{
+        let sym = self.module.get_sym(&id);
         if sym.is_none(){
             Err(CompileError::UndefErr{
                 position: self.lexer.pos(),
-                sym: id.to_string(),
+                id: id.clone(),
             })
         }else{
             Ok(sym.unwrap())
@@ -268,7 +268,7 @@ impl<I: std::io::Read> Parser<I>{
             Ok(Type::Function{args, ret: Box::new(typ)})
         }else{
             let id = self.ident()?;
-            let sym = self.lookup(&id)?;
+            let sym = self.lookup(id)?;
             if sym.is_type(){
                 Ok(sym.typ)
             }else{
@@ -349,7 +349,7 @@ impl<I: std::io::Read> Parser<I>{
             Ok(())
         }else{
             let id = self.ident()?;
-            let sym = self.lookup(&id)?;
+            let sym = self.lookup(id)?;
             self.expect(Token::Assign)?; 
             let expr_typ = self.expr()?;            
             self.typecheck(&sym.typ, &expr_typ)?;
@@ -500,8 +500,8 @@ impl<I: std::io::Read> Parser<I>{
             Ok(Type::Integer)
         }else{
             let id = self.ident()?;
-            let sym = self.lookup(&id)?;
-            if self.accept(Token::LParen) && sym.is_function(){
+            let sym = self.lookup(id)?;
+            if sym.is_function() && self.accept(Token::LParen){
                 let mut args = Vec::new();
                 if !self.check(Token::RParen){
                     loop{
@@ -524,10 +524,10 @@ impl<I: std::io::Read> Parser<I>{
     }
 
 //ident <- ID
-    fn ident(&mut self) -> Parsing<String>{
-        let word = self.lexer.word.to_string();
+    fn ident(&mut self) -> Parsing<Ident>{
+        let id = self.module.make_id(&self.lexer.word).clone();
         self.expect(Token::Ident)?;
-        Ok(word)
+        Ok(id)
     }
 }
 

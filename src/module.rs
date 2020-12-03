@@ -1,14 +1,17 @@
 /*  TODO
     deduplicate Types
-    make indices implement Copy
     externalise the offset
     nested scopes?
 */
 
 use std::fmt;
+use std::rc::Rc;
+
+pub type Ident = Rc<String>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module{
+    words: Vec<Ident>,
     context: Vec<Symbol>,
     offset: usize, // move
 }
@@ -30,15 +33,29 @@ impl fmt::Display for Module{
 impl Module{
     pub fn new() -> Module{
         let mut m = Module{
+            words: Vec::new(),
             context: Vec::new(),
             offset: 0,
         };
-        m.declare_type("Int".to_string(), Type::Integer);
-        m.declare_type("Bool".to_string(), Type::Bool);
+        let id = m.make_id("Int");
+        m.declare_type(id, Type::Integer);
+        let id = m.make_id("Bool");
+        m.declare_type(id, Type::Bool);
         return m;
     }
 
-    pub fn get_sym(&self, id: &str) -> Option<Symbol>{
+    pub fn make_id(&mut self, s: &str) -> Ident{
+        for word in self.words.iter(){
+            if **word == s{
+                return word.clone();
+            }
+        }
+        let word = Rc::new(s.to_string());
+        self.words.push(word.clone());
+        return word;
+    }
+
+    pub fn get_sym(&self, id: &Ident) -> Option<Symbol>{
         let mut must_be_global = false;
         for sym in self.context.iter().rev(){
             if must_be_global != sym.kind.is_global(){
@@ -48,18 +65,19 @@ impl Module{
                     must_be_global = true;
                 }
             }
-            if sym.id == id{
+            if Rc::ptr_eq(&sym.id, &id){
                 return Some(sym.clone());
             }
         }
         None
     }
 
-    pub fn declare_type(&mut self, id: String, typ: Type){
+    pub fn declare_type(&mut self, id: Ident, typ: Type){
         let kind = Kind::Type;
         self.context.push(Symbol::new(id, typ, kind));
     }
-    pub fn declare_fun(&mut self, id: String, typ: Type, start: usize) -> Symbol{
+
+    pub fn declare_fun(&mut self, id: Ident, typ: Type, start: usize) -> Symbol{
         let kind = Kind::Function{start_block: start}; //TODO 
         self.offset = 0;
         let sym = Symbol::new(id, typ, kind);
@@ -67,11 +85,12 @@ impl Module{
         return sym;
     }
 
-    pub fn declare_arg(&mut self, id: String, typ: Type, pos: usize){
+    pub fn declare_arg(&mut self, id: Ident, typ: Type, pos: usize){
         let kind = Kind::Argument{pos};
         self.context.push(Symbol::new(id, typ, kind));
     }
-    pub fn declare_var(&mut self, id: String, typ: Type){
+
+    pub fn declare_var(&mut self, id: Ident, typ: Type){
         self.offset += typ.sizeof();
         let kind = Kind::Variable{offset: self.offset};
         self.context.push(Symbol::new(id, typ, kind));
@@ -81,24 +100,24 @@ impl Module{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Symbol{
-    pub id: String,
+    id: Ident,
     pub typ: Type,
     kind: Kind,
 }
 impl fmt::Display for Symbol{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
         match self.kind{
-            Kind::Type              => write!(f, "{}", self.typ),
-            Kind::Function{..}          => write!(f, "{}", self.id),
-            Kind::Variable{..}          => write!(f, "{}", self.id),
-            Kind::Argument{..}          => write!(f, "{}", self.id),
+            Kind::Type         => write!(f, "{}", self.typ),
+            Kind::Function{..} => write!(f, "{}", self.id),
+            Kind::Variable{..} => write!(f, "{}", self.id),
+            Kind::Argument{..} => write!(f, "{}", self.id),
         }
     }
 }
 
 impl Symbol{
-    fn new(id: String, typ: Type, kind: Kind) -> Symbol{
-        Symbol{id, typ, kind}
+    fn new(id: Ident, typ: Type, kind: Kind) -> Symbol{
+        Symbol{id: id.clone(), typ, kind}
     }
 
     pub fn is_function(&self) -> bool{
@@ -131,6 +150,12 @@ impl Kind{
     }
 }
 
+
+//types--------------------------------------------------------
+
+
+
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type{
     Unknown,
@@ -155,11 +180,6 @@ impl fmt::Display for Type{
                 write!(f, "){}", ret)
             }
         }
-    }
-}
-impl Default for Type{
-    fn default() -> Type{
-        Type::Unknown
     }
 }
 impl Type{
