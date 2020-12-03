@@ -7,7 +7,7 @@
 */
 
 
-use crate::module::{Module, Type, Symbol, Ident};
+use crate::module::{Module, Type, FuncType, Symbol, Ident};
 use std::io::Read;
 use crate::builder::Builder;
 use crate::lexer::{LexPos, Lexer, TokenSet, Token};
@@ -68,7 +68,7 @@ pub struct Parser<I:Read>{
     current: Token,
     tried: TokenSet,
     module: Module,
-    current_fun: Option<Symbol>,
+    current_fun: FuncType,
     builder: Builder
 }
 impl<I: std::io::Read> Parser<I>{
@@ -78,7 +78,7 @@ impl<I: std::io::Read> Parser<I>{
             current: Token::Error,
             tried: TokenSet::new(),
             module: Module::new(),
-            current_fun: None,
+            current_fun: FuncType{args:Vec::new(), ret: Type::Unknown},
             builder: Builder::new(),
         };
         p.current = p.lexer.next();
@@ -187,7 +187,7 @@ impl<I: std::io::Read> Parser<I>{
         self.funbody()
     }
 
-// funhead -> ID '(' [ ID { ',' ID } ] ')' ':' typedec
+// funhead -> ID '(' [ ID { ',' ID } ] ')' ':' funtype
     fn funhead(&mut self) -> Parsing<()>{
         let id = self.ident()?;
         let mut args_id = Vec::new();
@@ -201,18 +201,17 @@ impl<I: std::io::Read> Parser<I>{
         }
         self.expect(Token::RParen)?;
         self.expect(Token::Colon)?;
-        let typ = self.typedec()?;
+        let typ = self.funtype()?;
 
         let start = self.builder.new_function(id.clone());
         self.builder.select(start);
-        self.current_fun = Some(self.module.declare_fun(id, typ.clone(), start));
-
-        let args = self.current_fun.as_ref().unwrap().typ.get_args();
-        if args.len() != args_id.len(){
+        self.module.declare_fun(id, typ.clone(), start);
+        self.current_fun = typ.clone();
+        if typ.args.len() != args_id.len(){
             self.mark("Arity mismatch.")?;
         }
-        for i in 0..args.len(){
-            self.module.declare_arg(args_id[i].clone(), args[i].clone(), i);
+        for i in 0..args_id.len(){
+            self.module.declare_arg(args_id[i].clone(), typ.args[i].clone(), i);
         }
         Ok(())
     }
@@ -222,7 +221,7 @@ impl<I: std::io::Read> Parser<I>{
     fn funbody(&mut self) -> Parsing<()>{
         if self.accept(Token::Equal){
             let typ1 = self.expr()?;
-            let typ2 = self.current_fun.as_ref().unwrap().typ.get_ret();
+            let typ2 = self.current_fun.ret.clone();
             self.typecheck(&typ1, &typ2)?;
             self.expect(Token::Semi)
         }else{
@@ -251,31 +250,35 @@ impl<I: std::io::Read> Parser<I>{
         Ok(())
     }
 
-// typedec <- '(' [ typedec { ',' typedec } ] ')' typedec
-// typedec <- Id
+// typedec <- funtype | Id
     fn typedec(&mut self) -> Parsing<Type>{
-        if self.accept(Token::LParen){
-            let mut args = Vec::new();
-
-            if !self.check(Token::RParen){
-                args.push(self.typedec()?);
-                while self.accept(Token::Comma){
-                    args.push(self.typedec()?);
-                }
-            }
-            self.expect(Token::RParen)?;
-            let typ = self.typedec()?;
-            Ok(Type::Function{args, ret: Box::new(typ)})
+        if self.check(Token::LParen){
+            Ok(self.funtype()?.into_type())
         }else{
             let id = self.ident()?;
             let sym = self.lookup(id)?;
             if sym.is_type(){
-                Ok(sym.typ)
+                Ok(sym.get_typ())
             }else{
                 self.mark("Symbol isnt Type")
             }
         }
     }
+
+//funtype -> '(' [ typedec { ',' typedec } ] ')' typedec
+    fn funtype(&mut self) -> Parsing<FuncType>{
+        self.expect(Token::LParen)?;
+        let mut args = Vec::new();
+        if !self.check(Token::RParen){
+            args.push(self.typedec()?);
+            while self.accept(Token::Comma){
+                args.push(self.typedec()?);
+            }
+        }
+        self.expect(Token::RParen)?;
+        let typ = self.typedec()?;
+        Ok(FuncType{args, ret: typ})
+}
 
 // block -> { stmt }
     fn block(&mut self) -> Parsing<()>{
@@ -296,7 +299,7 @@ impl<I: std::io::Read> Parser<I>{
     fn stmt(&mut self) -> Parsing<()>{
         if self.accept(Token::Return){
             let typ1 = self.expr()?;
-            let typ2 = self.current_fun.as_ref().unwrap().typ.get_ret();
+            let typ2 = self.current_fun.ret.clone();
             self.typecheck(&typ1, &typ2)?;
             self.expect(Token::Semi)?;
             Ok(())
@@ -352,7 +355,7 @@ impl<I: std::io::Read> Parser<I>{
             let sym = self.lookup(id)?;
             self.expect(Token::Assign)?; 
             let expr_typ = self.expr()?;            
-            self.typecheck(&sym.typ, &expr_typ)?;
+            self.typecheck(&sym.get_typ(), &expr_typ)?;
             self.expect(Token::Semi)?;
             self.builder.store(sym);
             Ok(())
@@ -478,10 +481,10 @@ impl<I: std::io::Read> Parser<I>{
                 }
             }
             self.expect(Token::RParen)?;
-            let mut fun_typ = Type::from_args(args);
+            let mut fun_typ = FuncType::from_args(args).into_type();
             fun_typ = self.typecheck(&typ, &fun_typ)?;
             self.builder.icall(typ);
-            typ = fun_typ.get_ret();
+            typ = fun_typ.get_function().ret.clone();
         }
         Ok(typ)
     }
@@ -512,13 +515,13 @@ impl<I: std::io::Read> Parser<I>{
                     }
                 }
                 self.expect(Token::RParen)?;
-                let mut fun_typ = Type::from_args(args);
-                fun_typ = self.typecheck(&sym.typ, &fun_typ)?;
+                let mut fun_typ = FuncType::from_args(args).into_type();
+                fun_typ = self.typecheck(&sym.get_typ(), &fun_typ)?;
                 self.builder.call(sym.clone());
-                Ok(fun_typ.get_ret())
+                Ok(fun_typ.get_function().ret.clone())
             }else{
                 self.builder.load(sym.clone());
-                Ok(sym.typ)                
+                Ok(sym.get_typ())                
             }
         }
     }
