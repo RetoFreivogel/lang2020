@@ -1,3 +1,4 @@
+use crate::module::Type;
 use crate::module::Symbol;
 use std::fmt;
 use std::fmt::Write;
@@ -27,8 +28,9 @@ impl Block{
 pub enum Instruction{
     Load(Symbol),
     Store(Symbol),
-    Const(Symbol),
+    Const(usize),
     Call(Symbol),
+    ICall(Type),
     Check,
     And,
     Or,
@@ -51,8 +53,9 @@ impl Instruction{
         match self{
             Load(sym)   => write!(f, "{} ", sym),
             Store(sym)  => write!(f, "!{} ", sym),
-            Const(sym)  => write!(f, "{} ", sym),
-            Call(sym)   => write!(f, "({}) ", sym),
+            Const(n)    => write!(f, "{} ", n),
+            Call(sym)   => write!(f, "#{} ", sym),
+            ICall(typ)  => write!(f, "#{} ", typ),
             Check       => write!(f, "? "),
             And         => write!(f, "& "),
             Or          => write!(f, "| "),
@@ -151,8 +154,8 @@ impl Builder{
     pub fn load(&mut self, sym: Symbol){
         self.append_instruction(Instruction::Load(sym));
     }
-    pub fn constant(&mut self, sym: Symbol){
-        self.append_instruction(Instruction::Const(sym));
+    pub fn constant(&mut self, val: usize){
+        self.append_instruction(Instruction::Const(val));
     }
     pub fn store(&mut self, sym: Symbol){
         self.append_instruction(Instruction::Store(sym));
@@ -160,6 +163,10 @@ impl Builder{
 
     pub fn call(&mut self, sym: Symbol){
         self.append_instruction(Instruction::Call(sym));
+    }
+
+    pub fn icall(&mut self, typ: Type){
+        self.append_instruction(Instruction::ICall(typ));
     }
 
 

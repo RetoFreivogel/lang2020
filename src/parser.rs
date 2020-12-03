@@ -7,7 +7,7 @@
 */
 
 
-use crate::module::{Module, Type, Kind, Symbol};
+use crate::module::{Module, Type, Symbol};
 use std::io::Read;
 use crate::builder::Builder;
 use crate::lexer::{LexPos, Lexer, TokenSet, Token};
@@ -269,7 +269,7 @@ impl<I: std::io::Read> Parser<I>{
         }else{
             let id = self.ident()?;
             let sym = self.lookup(&id)?;
-            if sym.kind == Kind::Type{
+            if sym.is_type(){
                 Ok(sym.typ)
             }else{
                 self.mark("Symbol isnt Type")
@@ -466,7 +466,7 @@ impl<I: std::io::Read> Parser<I>{
 
 //  designator <- atom { '(' [ expr {',' expr } ] ')' }
     fn designator(&mut self) -> Parsing<Type>{
-        let mut sym = self.atom()?;
+        let mut typ = self.atom()?;
         while self.accept(Token::LParen){
             let mut args = Vec::new();
             if !self.check(Token::RParen){
@@ -478,40 +478,48 @@ impl<I: std::io::Read> Parser<I>{
                 }
             }
             self.expect(Token::RParen)?;
-            let mut fun_typ = Type::Function{args, ret: Box::new(Type::Unknown)};
-            fun_typ = self.typecheck(&sym.typ, &fun_typ)?;
-            self.builder.call(sym.clone());
-            sym = Symbol::temporary(fun_typ.get_ret());
+            let mut fun_typ = Type::from_args(args);
+            fun_typ = self.typecheck(&typ, &fun_typ)?;
+            self.builder.icall(typ);
+            typ = fun_typ.get_ret();
         }
-        if let Kind::Function{..} = sym.kind{
-            self.builder.load(sym.clone());
-            sym = Symbol::temporary(sym.typ);
-        }
-        Ok(sym.typ)
+        Ok(typ)
     }
 
 //  atom <- '(' expr ')'
 //  atom <- Integer 
-//  atom <- Id 
-    fn atom(&mut self) -> Parsing<Symbol>{
+//  atom <- Id [ '(' [ expr {',' expr } ] ')' ]
+    fn atom(&mut self) -> Parsing<Type>{
         if self.accept(Token::LParen){
             let typ = self.expr()?;
-            let sym = Symbol::temporary(typ);
             self.expect(Token::RParen)?;
-            Ok(sym) 
+            Ok(typ) 
         }else if self.accept(Token::Integer){
             let value = self.lexer.number;
-            let sym = Symbol::constant(Type::Integer, value);
-            self.builder.constant(sym.clone());
-            Ok(sym)
+            self.builder.constant(value);
+            Ok(Type::Integer)
         }else{
             let id = self.ident()?;
             let sym = self.lookup(&id)?;
-            match sym.kind{
-                Kind::Function{..} => {}
-                _ => self.builder.load(sym.clone()),
+            if self.accept(Token::LParen) && sym.is_function(){
+                let mut args = Vec::new();
+                if !self.check(Token::RParen){
+                    loop{
+                        args.push(self.expr()?);
+                        if !self.accept(Token::Comma){
+                            break
+                        }
+                    }
+                }
+                self.expect(Token::RParen)?;
+                let mut fun_typ = Type::from_args(args);
+                fun_typ = self.typecheck(&sym.typ, &fun_typ)?;
+                self.builder.call(sym.clone());
+                Ok(fun_typ.get_ret())
+            }else{
+                self.builder.load(sym.clone());
+                Ok(sym.typ)                
             }
-            Ok(sym)
         }
     }
 

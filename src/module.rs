@@ -9,16 +9,14 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module{
-    pub context: Vec<Symbol>,
-    pub offset: usize, // move
+    context: Vec<Symbol>,
+    offset: usize, // move
 }
 impl fmt::Display for Module{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
         for sym in &self.context{
             match sym.kind{
                 Kind::Type => write!(f, "Typ "),
-                Kind::Temporary => write!(f, "Temp "),
-                Kind::Constant{..} => write!(f, "Const "),
                 Kind::Function{..} => write!(f, "Fun "),
                 Kind::Variable{..} => write!(f, "Var "),
                 Kind::Argument{..} => write!(f, "Arg "),
@@ -85,14 +83,12 @@ impl Module{
 pub struct Symbol{
     pub id: String,
     pub typ: Type,
-    pub kind: Kind,
+    kind: Kind,
 }
 impl fmt::Display for Symbol{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
         match self.kind{
             Kind::Type              => write!(f, "{}", self.typ),
-            Kind::Temporary         => write!(f, "{}", self.typ), 
-            Kind::Constant{value}   => write!(f, "{}", value),
             Kind::Function{..}          => write!(f, "{}", self.id),
             Kind::Variable{..}          => write!(f, "{}", self.id),
             Kind::Argument{..}          => write!(f, "{}", self.id),
@@ -101,22 +97,27 @@ impl fmt::Display for Symbol{
 }
 
 impl Symbol{
-    pub fn new(id: String, typ: Type, kind: Kind) -> Symbol{
+    fn new(id: String, typ: Type, kind: Kind) -> Symbol{
         Symbol{id, typ, kind}
     }
-    pub fn constant(typ: Type, value: usize) -> Symbol{
-        Symbol::new(String::new(), typ, Kind::Constant{value})
+
+    pub fn is_function(&self) -> bool{
+        match self.kind{
+            Kind::Function{..} => true,
+            _ => false,
+        }
     }
-    pub fn temporary(typ: Type) -> Symbol{
-        Symbol::new(String::new(), typ, Kind::Temporary)
+    pub fn is_type(&self) -> bool{
+        match self.kind{
+            Kind::Type{..} => true,
+            _ => false,
+        }        
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Kind{
+enum Kind{
     Type,
-    Temporary,
-    Constant{value: usize},
     Function{start_block: usize},
     Variable{offset: usize},
     Argument{pos: usize},    
@@ -188,6 +189,10 @@ impl Type{
             }
             _ => None,
         }
+    }
+
+    pub fn from_args(args:Vec<Type>) -> Type{
+        Type::Function{args, ret: Box::new(Type::Unknown)}
     }
 
     pub fn get_ret(&self) -> Type{
