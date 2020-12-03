@@ -1,0 +1,121 @@
+fun test(a, b) : (Int, Int)Int is
+    var c : Int;
+    c :=  - a + b + 123;
+    return c;
+end
+
+fun fib(n) : (Int)Int is
+    if n < 2 then
+        return n;
+    else
+        return fib(n-1) + fib(n-2);
+    end
+end
+
+fun fib2(n,a,b) : (Int, Int, Int)Int is
+    if n == 0 then
+        return a;
+    else
+        return fib2(n-1, b, a+b);
+    end
+end
+
+fun sign(i) : (Int)Int is
+    if i < 0 then
+        return -1;
+    elsif i > 0 then
+        return 1;
+    else
+        return 0;
+    end
+end
+
+fun abs(i) : (Int)Int is
+    if i < 0 then
+        return -i;
+    end
+    return i;
+end
+
+fun fact(n) : (Int)Int is
+    if n < 2 then
+        return 1;
+    else
+        return fact(n-1) * n;
+    end
+end
+
+fun gcd(a, b) : (Int, Int)Int is 
+    while not a == b do
+        if a < b then
+            b := b - a;
+        else
+            a := a - b;
+        end
+    end
+    return a;
+end
+
+fun min(a, b) : (Int,Int)Int is
+    if a < b then 
+        return a;
+    else
+        return b;
+    end
+end
+
+fun max(a, b) : (Int,Int)Int is
+    if a < b then 
+        return b;
+    else
+        return a;
+    end
+end
+
+fun minmax(s) : (Bool)(Int, Int)Int is
+    var f : (Int,Int)Int;
+    if s then
+        f := max;
+    else
+        f := min;
+    end
+    return f;
+end
+
+fun use_minmax(s, a, b) : (Bool, Int, Int)Int = minmax(s)(a,b);
+    
+fun gcd2(a, b) : (Int,Int)Int is
+    while not a == 0 and not b == 0 do
+        if a < b then
+            b := b % a;
+        else
+            a := a % b;
+        end
+    end
+    return a + b;
+end
+    
+fun pow(b, n) : (Int,Int)Int is
+    var p : Int;
+    if n == 0 then
+        return 1;
+    end
+    p := pow(b, n / 2);
+    p := p * p;
+    if n % 2 == 1 then
+        p := p * b;
+    end
+    return p;
+end
+
+# computes f*(b^n)
+fun pow_mul(b, n, f) : (Int,Int,Int)Int is 
+    if n == 0 then
+        return f;
+    elsif n % 2 == 1 then
+        return pow_mul(b*b, n/2, f*b);
+    else
+        return pow_mul(b*b, n/2, f);
+    end
+end
+
