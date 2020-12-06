@@ -218,6 +218,7 @@ impl std::fmt::Display for LexPos {
     }
 }
 
+use crate::strtab::Ident;
 use std::io::Read;
 
 //Lexer----------------------------------------------------------------------
@@ -227,7 +228,7 @@ pub struct Lexer<I: Read> {
     linecount: usize,
     column: usize,
     pos: usize,
-    pub word: String,
+    pub word: Ident,
     pub number: usize,
     filename: String,
     current: u8,
@@ -239,7 +240,7 @@ impl<I: Read> Lexer<I> {
             linecount: 1,
             column: 0,
             pos: 0,
-            word: String::new(),
+            word: Ident::ident(""),
             number: 0,
             filename,
             current: 0,
@@ -365,19 +366,20 @@ impl<I: Read> Lexer<I> {
     }
 
     fn lex_word(&mut self) -> Token {
-        self.word.clear();
+        let mut word = String::new();
         loop {
             match self.current {
                 b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' => {
-                    self.word.push(self.current as char);
+                    word.push(self.current as char);
                     self.get_char();
                 }
                 _ => break,
             }
         }
-        if let Some(&(_, token)) = KEYWORDS.iter().find(|(kw, _)| kw == &self.word) {
+        if let Some(&(_, token)) = KEYWORDS.iter().find(|(kw, _)| kw == &word) {
             return token;
         } else {
+            self.word = Ident::ident(&word);
             return Token::Ident;
         }
     }

@@ -4,12 +4,11 @@
     nested scopes?
 */
 
+use crate::strtab::{Ident};
 use std::fmt;
-use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module {
-    words: Vec<Ident>,
     context: Vec<Symbol>,
     pos: usize, // move
 }
@@ -31,26 +30,14 @@ impl fmt::Display for Module {
 impl Module {
     pub fn new() -> Module {
         let mut m = Module {
-            words: Vec::new(),
             context: Vec::new(),
             pos: 0,
         };
-        let id = m.make_id("Int");
+        let id = Ident::ident("Int");
         m.declare_type(id, Type::Integer);
-        let id = m.make_id("Bool");
+        let id = Ident::ident("Bool");
         m.declare_type(id, Type::Bool);
         return m;
-    }
-
-    pub fn make_id(&mut self, s: &str) -> Ident {
-        for word in self.words.iter() {
-            if **word == s {
-                return word.clone();
-            }
-        }
-        let word = Rc::new(s.to_string());
-        self.words.push(word.clone());
-        return word;
     }
 
     pub fn get_sym(&self, id: &Ident) -> Option<Symbol> {
@@ -63,7 +50,7 @@ impl Module {
                     must_be_global = true;
                 }
             }
-            if Rc::ptr_eq(&sym.get_id(), &id) {
+            if &sym.get_id() == id {
                 return Some(sym.clone());
             }
         }
@@ -105,8 +92,6 @@ impl Module {
         return sym;
     }
 }
-
-pub type Ident = Rc<String>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Symbol {

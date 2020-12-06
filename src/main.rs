@@ -10,6 +10,7 @@ mod builder;
 mod lexer;
 mod module;
 mod parser;
+mod strtab;
 
 fn main() {
     use parser::Parser;

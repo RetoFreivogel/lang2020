@@ -1,4 +1,4 @@
-use crate::module::Ident;
+use crate::strtab::Ident;
 use std::fmt::Write;
 
 use crate::module::Symbol;
@@ -155,7 +155,6 @@ impl Builder {
             }
             writeln!(out, ".{}:", i)?;
             for instr in &self.instructions[block.start_instr..block.start_instr + block.n_instr] {
-                println!("{:?}, {}", instr, reg_n);
                 match instr {
                     Instruction::Load(Symbol::Var { pos, .. })
                     | Instruction::Load(Symbol::Arg { pos, .. }) => {

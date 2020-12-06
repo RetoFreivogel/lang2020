@@ -8,7 +8,8 @@
 
 use crate::builder::Builder;
 use crate::lexer::{LexPos, Lexer, Token, TokenSet};
-use crate::module::{FuncType, Ident, Module, Symbol, Type};
+use crate::module::{FuncType, Module, Symbol, Type};
+use crate::strtab::{Ident};
 use std::fmt;
 use std::io::Read;
 
@@ -545,7 +546,7 @@ impl<I: std::io::Read> Parser<I> {
 
     //ident <- ID
     fn ident(&mut self) -> Parsing<Ident> {
-        let id = self.module.make_id(&self.lexer.word).clone();
+        let id = self.lexer.word.clone();
         self.expect(Token::Ident)?;
         Ok(id)
     }
