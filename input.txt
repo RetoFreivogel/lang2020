@@ -72,28 +72,28 @@ fun max(a, b) : (Int,Int)Int is
     end
 end
 
-fun minmax(s) : (Bool)(Int, Int)Int is
-    var f : (Int,Int)Int;
-    if s then
-        f := max;
-    else
-        f := min;
-    end
-    return f;
-end
+#fun minmax(s) : (Bool)(Int, Int)Int is
+#    var f : (Int,Int)Int;
+#    if s then
+#        f := max;
+#    else
+#        f := min;
+#    end
+#    return f;
+#end
 
-fun use_minmax(s, a, b) : (Bool, Int, Int)Int = minmax(s)(a,b);
+#fun use_minmax(s, a, b) : (Bool, Int, Int)Int = minmax(s)(a,b);
     
-fun gcd2(a, b) : (Int,Int)Int is
-    while not a == 0 and not b == 0 do
-        if a < b then
-            b := b % a;
-        else
-            a := a % b;
-        end
-    end
-    return a + b;
-end
+#fun gcd2(a, b) : (Int,Int)Int is
+#    while not a == 0 and not b == 0 do
+#        if a < b then
+#            b := b % a;
+#        else
+#            a := a % b;
+#        end
+#    end
+#    return a + b;
+#end
     
 fun pow(b, n) : (Int,Int)Int is
     var p : Int;

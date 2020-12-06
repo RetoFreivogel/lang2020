@@ -19,16 +19,18 @@ fn main() {
     let items = parser.module();
     let (module, builder) = parser.done();
 
+    println!("MODULE--------------------------");
     println!("{}", module);
-	println!("--------------");
-    let mut out = String::new();
-    builder.print(&mut out).unwrap();
-    println!("{}", out);
-
+	println!("BLOCKS--------------------------");
+    println!("{}", builder);
+    println!("ERRORS--------------------------");
     for item in items{
         if let Err(e) = item{
 		  eprintln!("{}", e);
         }
     }
+    println!("ASM--------------------------");
+    println!("{}", builder.out_asm().unwrap());
+
 }
 

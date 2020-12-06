@@ -11,7 +11,7 @@ use std::rc::Rc;
 pub struct Module{
     words: Vec<Ident>,
     context: Vec<Symbol>,
-    offset: usize, // move
+    pos: usize, // move
 }
 impl fmt::Display for Module{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
@@ -22,7 +22,7 @@ impl fmt::Display for Module{
                 Symbol::Var{..}  => "Var",
                 Symbol::Arg{..}  => "Arg",
             };
-            writeln!(f, "{} {}", kind, sym)?;
+            writeln!(f, "{}  {}", kind, sym)?;
         }
         Ok(())
     }
@@ -33,7 +33,7 @@ impl Module{
         let mut m = Module{
             words: Vec::new(),
             context: Vec::new(),
-            offset: 0,
+            pos: 0,
         };
         let id = m.make_id("Int");
         m.declare_type(id, Type::Integer);
@@ -77,21 +77,22 @@ impl Module{
     }
 
     pub fn declare_fun(&mut self, id: Ident, typ: FuncType, start: usize) -> Symbol{
-        self.offset = 0;
+        self.pos = 0;
         let sym = Symbol::Func{id, typ, start};
         self.context.push(sym.clone());
         return sym;
     }
 
-    pub fn declare_arg(&mut self, id: Ident, typ: Type, position: usize) -> Symbol{
-        let sym = Symbol::Arg{id, typ, position};
+    pub fn declare_arg(&mut self, id: Ident, typ: Type) -> Symbol{
+        self.pos += 1;
+        let sym = Symbol::Arg{id, typ, pos: self.pos};
         self.context.push(sym.clone());
         return sym;
     }
 
     pub fn declare_var(&mut self, id: Ident, typ: Type) -> Symbol{
-        self.offset += typ.sizeof();
-        let sym = Symbol::Var{id, typ, offset: self.offset};
+        self.pos += 1;
+        let sym = Symbol::Var{id, typ, pos: self.pos};
         self.context.push(sym.clone());
         return sym;
     }
@@ -105,8 +106,8 @@ pub type Ident = Rc<String>;
 pub enum Symbol{
     Type {id: Ident, typ: Type},
     Func {id: Ident, typ: FuncType, start:    usize},
-    Var  {id: Ident, typ: Type,     offset:   usize},
-    Arg  {id: Ident, typ: Type,     position: usize},
+    Var  {id: Ident, typ: Type,     pos: usize},
+    Arg  {id: Ident, typ: Type,     pos: usize},
 }
 impl fmt::Display for Symbol{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
@@ -219,14 +220,6 @@ impl fmt::Display for Type{
     }
 }
 impl Type{
-    fn sizeof(&self) -> usize{
-        match self{
-            Type::Unknown => 0,
-            Type::Integer => 8,
-            Type::Bool => 1,
-            Type::Function{..} => 8,
-        }
-    }
 
     pub fn unify(&self, other: &Type) -> Option<Type>{
         use Type::*;

@@ -211,7 +211,7 @@ impl<I: std::io::Read> Parser<I>{
             self.mark("Arity mismatch.")?;
         }
         for i in 0..args_id.len(){
-            self.module.declare_arg(args_id[i].clone(), typ.args[i].clone(), i);
+            self.module.declare_arg(args_id[i].clone(), typ.args[i].clone());
         }
         Ok(())
     }
@@ -220,25 +220,32 @@ impl<I: std::io::Read> Parser<I>{
 // funbody -> 'is' vardec block 'end'
     fn funbody(&mut self) -> Parsing<()>{
         if self.accept(Token::Equal){
+            self.builder.enter(self.current_fun.args.len(), 0);
             let typ1 = self.expr()?;
             let typ2 = self.current_fun.ret.clone();
             self.typecheck(&typ1, &typ2)?;
-            self.expect(Token::Semi)
+            self.expect(Token::Semi)?;
+            Ok(())
         }else{
             self.expect(Token::Is)?;
-            self.vardec()?;
+            let n_vars = self.vardec()?;
+            self.builder.enter(self.current_fun.args.len(), n_vars);
             self.block()?;
-            self.expect(Token::End)
+            self.expect(Token::End)?;
+            Ok(())
         }
     }
 
 // vardec -> { 'var' ID { ',' ID } ':' typedec ';' }
-    fn vardec(&mut self) -> Parsing<()>{
+    fn vardec(&mut self) -> Parsing<usize>{
+        let mut count = 0;
         while self.accept(Token::Var){
             let mut ids = Vec::new();
             ids.push(self.ident()?);
+            count += 1;
             while self.accept(Token::Comma){
                 ids.push(self.ident()?);
+                count += 1;
             }
             self.expect(Token::Colon)?;
             let typ = self.typedec()?;
@@ -247,7 +254,7 @@ impl<I: std::io::Read> Parser<I>{
             }
             self.expect(Token::Semi)?;
         }
-        Ok(())
+        Ok(count)
     }
 
 // typedec <- funtype | Id
@@ -294,18 +301,18 @@ impl<I: std::io::Read> Parser<I>{
 
 // stmt = ID ':=' expr ';'
 //      | 'return' expr ';'
-//      | 'if' expr 'then' block {'elsif' expr 'then' block} ['else' block] 'end'
-//      | 'while' expr 'do' block 'end'
+//      | 'if' clause 'then' block {'elsif' clause 'then' block} ['else' block] 'end'
+//      | 'while' clause 'do' block 'end'
     fn stmt(&mut self) -> Parsing<()>{
         if self.accept(Token::Return){
             let typ1 = self.expr()?;
             let typ2 = self.current_fun.ret.clone();
             self.typecheck(&typ1, &typ2)?;
             self.expect(Token::Semi)?;
+            self.builder.ret();
             Ok(())
         }else if self.accept(Token::If){
-            let if_typ = self.expr()?;
-            self.typecheck(&Type::Bool, &if_typ)?;
+            self.clause()?;
             self.expect(Token::Then)?;
             let mut then_block = self.builder.new_block();
             let mut else_block = self.builder.new_block();
@@ -316,8 +323,7 @@ impl<I: std::io::Read> Parser<I>{
             self.builder.jump(end_block);
             self.builder.select(else_block);
             while self.accept(Token::Elsif){
-                let elsif_typ = self.expr()?;
-                self.typecheck(&Type::Bool, &elsif_typ)?;
+                self.clause()?;
                 self.expect(Token::Then)?;
                 then_block = self.builder.new_block();
                 else_block = self.builder.new_block();
@@ -338,8 +344,7 @@ impl<I: std::io::Read> Parser<I>{
             let cond_block = self.builder.new_block();
             self.builder.jump(cond_block);
             self.builder.select(cond_block);
-            let while_typ = self.expr()?;
-            self.typecheck(&Type::Bool, &while_typ)?;
+            self.clause()?;
             self.expect(Token::Do)?;
             let loop_block = self.builder.new_block();
             let end_block = self.builder.new_block();
@@ -361,7 +366,7 @@ impl<I: std::io::Read> Parser<I>{
             Ok(())
         }        
     }
-
+/*
 // expr -> conjunction {'or' conjunction}
     fn expr(&mut self) -> Parsing<Type>{
         let typ = self.conjunction()?;
@@ -383,49 +388,39 @@ impl<I: std::io::Read> Parser<I>{
         }
         Ok(typ)
     }
+*/
 
-// relation -> [ 'not' ] sum [ ( '==' | '<' | '>' | '<=' | '>=' ) sum ]
-    fn relation(&mut self) -> Parsing<Type>{
-        let is_negated = self.accept(Token::Not);
-        let mut typ = self.sum()?;
 
-        if self.accept(Token::EqualEqual){
-                let sum_typ = self.sum()?;
-                self.typecheck(&typ, &sum_typ)?;
-                typ = Type::Bool;
-                self.builder.comp_eq();
+// clause -> [ 'not' ] expr ( '==' | '<' | '<=' | '>=' | '>' ) expr 
+    fn clause(&mut self) -> Parsing<()>{
+        let negate = self.accept(Token::Not);
+        let typ = self.expr()?;
+
+        let op = if self.accept(Token::EqualEqual){
+            if negate {Builder::comp_neq} else {Builder::comp_eq}
         }else if self.accept(Token::LessThan){
-                let sum_typ = self.sum()?;
-                self.typecheck(&typ, &sum_typ)?;
-                typ = Type::Bool;
-                self.builder.comp_lt();
+            if negate {Builder::comp_ge} else {Builder::comp_lt}
         }else if self.accept(Token::GreaterThan){
-                let sum_typ = self.sum()?;
-                self.typecheck(&typ, &sum_typ)?;
-                typ = Type::Bool;
-                self.builder.comp_gt();
+            if negate {Builder::comp_le} else {Builder::comp_gt}
         }else if self.accept(Token::LessEqual){ 
-                let sum_typ = self.sum()?;
-                self.typecheck(&typ, &sum_typ)?;
-                typ = Type::Bool;
-                self.builder.comp_le();
-        }else if self.accept(Token::GreaterEqual){
-                let sum_typ = self.sum()?;
-                self.typecheck(&typ, &sum_typ)?;
-                typ = Type::Bool;
-                self.builder.comp_ge();
-        }
-        if is_negated{
-            self.typecheck(&Type::Bool, &typ)?;
-            self.builder.not();
-        }
-        Ok(typ)
+            if negate {Builder::comp_gt} else {Builder::comp_le}
+        }else{
+            self.expect(Token::GreaterEqual)?;
+            if negate {Builder::comp_lt} else {Builder::comp_ge}
+        };
+        let sum_typ = self.expr()?;
+        self.typecheck(&typ, &sum_typ)?;
+        op(&mut self.builder);
+        Ok(())
     }
 
-// sum -> ['-'] term { ('+' | '-') term }
-    fn sum(&mut self) -> Parsing<Type>{
+// expr -> ['-'] term { ('+' | '-') term }
+    fn expr(&mut self) -> Parsing<Type>{
         let has_minus = self.accept(Token::Minus);
         let typ = self.term()?;
+        if has_minus{
+            self.builder.negate();
+        }
         loop{
         	if self.accept(Token::Plus){
                 let term_typ = self.term()?;
@@ -439,9 +434,7 @@ impl<I: std::io::Read> Parser<I>{
         		break;
         	}
         }
-        if has_minus{
-            self.builder.negate();
-        }
+
         Ok(typ)
     }
 
@@ -468,8 +461,12 @@ impl<I: std::io::Read> Parser<I>{
     }
 
 //  designator <- atom { '(' [ expr {',' expr } ] ')' }
+
+
+//  designator <- atom 
     fn designator(&mut self) -> Parsing<Type>{
-        let mut typ = self.atom()?;
+        let typ = self.atom()?;
+        /*
         while self.accept(Token::LParen){
             let mut args = Vec::new();
             if !self.check(Token::RParen){
@@ -486,6 +483,7 @@ impl<I: std::io::Read> Parser<I>{
             self.builder.icall(typ);
             typ = fun_typ.get_function().ret.clone();
         }
+        */
         Ok(typ)
     }
 
