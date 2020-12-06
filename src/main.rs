@@ -1,15 +1,15 @@
 /*
-	symbol tables
-	string tables
-	type checking and inference
-	stack machine execution
-	x64 assembly output?
+    symbol tables
+    string tables
+    type checking and inference
+    stack machine execution
+    x64 assembly output?
 */
 
-mod parser;
+mod builder;
 mod lexer;
 mod module;
-mod builder;
+mod parser;
 
 fn main() {
     use parser::Parser;
@@ -21,16 +21,14 @@ fn main() {
 
     println!("MODULE--------------------------");
     println!("{}", module);
-	println!("BLOCKS--------------------------");
+    println!("BLOCKS--------------------------");
     println!("{}", builder);
     println!("ERRORS--------------------------");
-    for item in items{
-        if let Err(e) = item{
-		  eprintln!("{}", e);
+    for item in items {
+        if let Err(e) = item {
+            eprintln!("{}", e);
         }
     }
     println!("ASM--------------------------");
     println!("{}", builder.out_asm().unwrap());
-
 }
-
