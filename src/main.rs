@@ -8,21 +8,24 @@
 
 mod builder;
 mod lexer;
-mod module;
+//mod module;
 mod parser;
 mod strtab;
 
 fn main() {
     use parser::Parser;
     let filename = "input.txt".to_string();
-    let input = std::fs::File::open(&filename).unwrap();
-    let mut parser = Parser::new_file(filename, input);
-    let items = parser.module();
-    let (module, builder) = parser.done();
+    let mut parser = Parser::new_file(filename);
+    let mut module = parser::module(&mut parser);
 
-    println!("MODULE--------------------------");
-    println!("{}", module);
-    println!("BLOCKS--------------------------");
+    for item in module.items.iter_mut(){
+        item.remove_blocks();
+    }
+
+    println!("OUTPUT--------------------------\n");
+    println!("{}\n", module);
+
+    /*println!("BLOCKS--------------------------");
     println!("{}", builder);
     println!("ERRORS--------------------------");
     for item in items {
@@ -32,4 +35,5 @@ fn main() {
     }
     println!("ASM--------------------------");
     println!("{}", builder.out_asm().unwrap());
+    */
 }

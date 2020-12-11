@@ -218,13 +218,14 @@ impl std::fmt::Display for LexPos {
     }
 }
 
+use std::fs::File;
 use crate::strtab::Ident;
 use std::io::Read;
 
 //Lexer----------------------------------------------------------------------
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Lexer<I: Read> {
-    stream: I,
+#[derive(Debug)]
+pub struct Lexer {
+    stream: File,
     linecount: usize,
     column: usize,
     pos: usize,
@@ -233,10 +234,10 @@ pub struct Lexer<I: Read> {
     filename: String,
     current: u8,
 }
-impl<I: Read> Lexer<I> {
-    pub fn new(filename: String, stream: I) -> Lexer<I> {
+impl Lexer {
+    pub fn new(filename: String) -> Lexer {
         let mut lex = Lexer {
-            stream,
+            stream: std::fs::File::open(&filename).unwrap(),
             linecount: 1,
             column: 0,
             pos: 0,

@@ -6,12 +6,11 @@
     use combinators?
 */
 
-use crate::builder::Builder;
+use crate::builder::{FunctionBuilder, Function, Value, Relation, Type};
 use crate::lexer::{LexPos, Lexer, Token, TokenSet};
-use crate::module::{FuncType, Module, Symbol, Type};
+//use crate::module::{FuncType, Module, Symbol, Type};
 use crate::strtab::{Ident};
 use std::fmt;
-use std::io::Read;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompileError {
@@ -66,45 +65,48 @@ impl fmt::Display for CompileError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Parser<I: Read> {
-    lexer: Lexer<I>,
+#[derive(Debug)]
+pub struct Parser{
+    lexer: Lexer,
     current: Token,
     tried: TokenSet,
-    module: Module,
-    current_fun: FuncType,
-    builder: Builder,
+    //module: Module,
+    //current_fun: FuncType,
+    //builder: Builder,
 }
-impl<I: std::io::Read> Parser<I> {
-    pub fn new_file(filename: String, input: I) -> Parser<I> {
+impl Parser{
+    pub fn new_file(filename: String) -> Parser {
         let mut p = Parser {
-            lexer: Lexer::new(filename, input),
+            lexer: Lexer::new(filename),
             current: Token::Error,
             tried: TokenSet::new(),
-            module: Module::new(),
-            current_fun: FuncType {
-                args: Vec::new(),
-                ret: Type::Unknown,
-            },
-            builder: Builder::new(),
+            //module: Module::new(),
+            //current_fun: FuncType {
+            //    args: Vec::new(),
+            //    ret: Type::Unknown,
+            //},
+            //builder: Builder::new(),
         };
         p.current = p.lexer.next();
         p
     }
 
+    /*
     pub fn done(self) -> (Module, Builder) {
         (self.module, self.builder)
     }
+    */
 
     //error handling and parser utilities-------------------------------------------
 
     fn syntax_err<T>(&mut self) -> Parsing<T> {
-        self.current = Token::Error;
-        Err(CompileError::ParseErr {
+        let err = Err(CompileError::ParseErr {
             position: self.lexer.pos(),
             tried: self.tried,
             found: self.current,
-        })
+        });
+        self.current = Token::Error;
+        err
     }
 
     fn mark<T>(&mut self, text: &str) -> Parsing<T> {
@@ -115,6 +117,7 @@ impl<I: std::io::Read> Parser<I> {
         })
     }
 
+/*
     fn typecheck(&mut self, a: &Type, b: &Type) -> Parsing<Type> {
         let c = a.unify(b);
         if c.is_some() {
@@ -139,6 +142,7 @@ impl<I: std::io::Read> Parser<I> {
             Ok(sym.unwrap())
         }
     }
+*/
 
     fn check(&self, t: Token) -> bool {
         self.current == t
@@ -165,214 +169,182 @@ impl<I: std::io::Read> Parser<I> {
             self.syntax_err()
         }
     }
-
+}
     //parser rules------------------------------------------------------------------
 
+
     // module -> {item} EOF
-    pub fn module(&mut self) -> Vec<Parsing<()>> {
-        let mut items = Vec::new();
-        while !self.accept(Token::Eof) {
-            if self.check(Token::Fun) {
-                items.push(self.item());
-            } else {
-                self.current = self.lexer.next();
+pub fn module(parser: &mut Parser) -> crate::builder::Module{
+    let mut items = Vec::new();
+    while !parser.accept(Token::Eof) {
+        if parser.check(Token::Fun) {
+            match item(parser){
+                Ok(fun) => items.push(fun),
+                Err(e) => eprintln!("{:?}", e),
             }
+        } else {
+            parser.current = parser.lexer.next();
         }
-        items
     }
+    crate::builder::Module{items}
+}
 
-    //item -> 'fun' funhead funbody
-    fn item(&mut self) -> Parsing<()> {
-        self.expect(Token::Fun)?;
-        self.funhead()?;
-        self.funbody()
+
+//item -> 'fun' ID funhead funbody
+fn item(parser: &mut Parser) -> Parsing<Function> {
+    parser.expect(Token::Fun)?;
+    let id = ident(parser)?;
+
+    let mut fun = FunctionBuilder::new(id);
+    funhead(parser, &mut fun)?;
+    funbody(parser, &mut fun)?;
+    let fun = fun.done();
+    Ok(fun)
+}
+
+
+// funhead -> '(' [ ID { ',' ID } ] ')' ':' type_dec
+fn funhead(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
+
+    parser.expect(Token::LParen)?;
+    if !parser.check(Token::RParen) {
+        fun.add_var(ident(parser)?);
+        while parser.accept(Token::Comma) {
+            fun.add_var(ident(parser)?);
+        }
     }
+    parser.expect(Token::RParen)?;
+    parser.expect(Token::Colon)?;
+    type_dec(parser)?;
+    //fun.typ = Some(type_dec(parser)?);
+    Ok(())
+}
 
-    // funhead -> ID '(' [ ID { ',' ID } ] ')' ':' funtype
-    fn funhead(&mut self) -> Parsing<()> {
-        let id = self.ident()?;
-        let mut args_id = Vec::new();
-
-        self.expect(Token::LParen)?;
-        if !self.check(Token::RParen) {
-            args_id.push(self.ident()?);
-            while self.accept(Token::Comma) {
-                args_id.push(self.ident()?);
-            }
-        }
-        self.expect(Token::RParen)?;
-        self.expect(Token::Colon)?;
-        let typ = self.funtype()?;
-
-        let start = self.builder.new_function(id.clone());
-        self.builder.select(start);
-        self.module.declare_fun(id, typ.clone(), start);
-        self.current_fun = typ.clone();
-        if typ.args.len() != args_id.len() {
-            self.mark("Arity mismatch.")?;
-        }
-        for i in 0..args_id.len() {
-            self.module
-                .declare_arg(args_id[i].clone(), typ.args[i].clone());
-        }
+// funbody  '=' expr ';'
+// funbody -> 'is' vardec block 'end'
+fn funbody(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
+    if parser.accept(Token::Equal) {
+        let a = expr(parser, fun)?;
+        parser.expect(Token::Semi)?;
+        fun.term_return(a);
+        Ok(())
+    } else {
+        parser.expect(Token::Is)?;
+        vardec(parser, fun)?;
+        block(parser, fun)?;
+        parser.expect(Token::End)?;
         Ok(())
     }
+}
 
-    // funbody  '=' expr ';'
-    // funbody -> 'is' vardec block 'end'
-    fn funbody(&mut self) -> Parsing<()> {
-        if self.accept(Token::Equal) {
-            self.builder.enter(self.current_fun.args.len(), 0);
-            let typ1 = self.expr()?;
-            let typ2 = self.current_fun.ret.clone();
-            self.typecheck(&typ1, &typ2)?;
-            self.expect(Token::Semi)?;
-            Ok(())
-        } else {
-            self.expect(Token::Is)?;
-            let n_vars = self.vardec()?;
-            self.builder.enter(self.current_fun.args.len(), n_vars);
-            self.block()?;
-            self.expect(Token::End)?;
-            Ok(())
+// vardec -> { 'var' ID { ',' ID } ':' type_dec ';' }
+fn vardec(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
+    while parser.accept(Token::Var) {
+        fun.add_var(ident(parser)?);
+        while parser.accept(Token::Comma) {
+            fun.add_var(ident(parser)?);
         }
+        parser.expect(Token::Colon)?;
+        let _typ = type_dec(parser)?;
+        parser.expect(Token::Semi)?;
     }
+    Ok(())
+}
 
-    // vardec -> { 'var' ID { ',' ID } ':' typedec ';' }
-    fn vardec(&mut self) -> Parsing<usize> {
-        let mut count = 0;
-        while self.accept(Token::Var) {
-            let mut ids = Vec::new();
-            ids.push(self.ident()?);
-            count += 1;
-            while self.accept(Token::Comma) {
-                ids.push(self.ident()?);
-                count += 1;
-            }
-            self.expect(Token::Colon)?;
-            let typ = self.typedec()?;
-            for id in ids {
-                self.module.declare_var(id, typ.clone());
-            }
-            self.expect(Token::Semi)?;
-        }
-        Ok(count)
-    }
-
-    // typedec <- funtype | Id
-    fn typedec(&mut self) -> Parsing<Type> {
-        if self.check(Token::LParen) {
-            Ok(self.funtype()?.into_type())
-        } else {
-            let id = self.ident()?;
-            let sym = self.lookup(id)?;
-            if sym.is_type() {
-                Ok(sym.get_typ())
-            } else {
-                self.mark("Symbol isnt Type")
-            }
-        }
-    }
-
-    //funtype -> '(' [ typedec { ',' typedec } ] ')' typedec
-    fn funtype(&mut self) -> Parsing<FuncType> {
-        self.expect(Token::LParen)?;
+// type_dec <- '(' [ Id { ',' Id } ] ')' Id | Id
+fn type_dec(parser: &mut Parser) -> Parsing<Type> {
+    if parser.accept(Token::LParen){
         let mut args = Vec::new();
-        if !self.check(Token::RParen) {
-            args.push(self.typedec()?);
-            while self.accept(Token::Comma) {
-                args.push(self.typedec()?);
+        if !parser.check(Token::RParen) {
+            args.push(ident(parser)?);
+            while parser.accept(Token::Comma) {
+                args.push(ident(parser)?);
             }
         }
-        self.expect(Token::RParen)?;
-        let typ = self.typedec()?;
-        Ok(FuncType { args, ret: typ })
+        parser.expect(Token::RParen)?;
+        let ret = ident(parser)?;
+        Ok(Type::Func{args, ret})
+    } else {
+        let id = ident(parser)?;
+        Ok(Type::Id(id))
     }
+}
 
-    // block -> { stmt }
-    fn block(&mut self) -> Parsing<()> {
-        while !self.check(Token::End)
-            && !self.check(Token::Elsif)
-            && !self.check(Token::Else)
-            && !self.check(Token::Error)
-        {
-            self.stmt()?;
-        }
-        Ok(())
+// block -> { stmt } [ "return" expr ]
+fn block(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
+    while parser.check(Token::If)
+        || parser.check(Token::While)
+        || parser.check(Token::Ident)
+        || parser.check(Token::Return)
+    {
+        stmt(parser, fun)?;
     }
+    Ok(())   
+}
 
     // stmt = ID ':=' expr ';'
     //      | 'return' expr ';'
     //      | 'if' clause 'then' block {'elsif' clause 'then' block} ['else' block] 'end'
     //      | 'while' clause 'do' block 'end'
-    fn stmt(&mut self) -> Parsing<()> {
-        if self.accept(Token::Return) {
-            let typ1 = self.expr()?;
-            let typ2 = self.current_fun.ret.clone();
-            self.typecheck(&typ1, &typ2)?;
-            self.expect(Token::Semi)?;
-            self.builder.ret();
-            Ok(())
-        } else if self.accept(Token::If) {
-            self.clause()?;
-            self.expect(Token::Then)?;
-            let mut then_block = self.builder.new_block();
-            let mut else_block = self.builder.new_block();
-            let end_block = self.builder.new_block();
-            self.builder.jump_if(then_block, else_block);
-            self.builder.select(then_block);
-            self.block()?;
-            self.builder.jump(end_block);
-            self.builder.select(else_block);
-            while self.accept(Token::Elsif) {
-                self.clause()?;
-                self.expect(Token::Then)?;
-                then_block = self.builder.new_block();
-                else_block = self.builder.new_block();
-                self.builder.jump_if(then_block, else_block);
-                self.builder.select(then_block);
-                self.block()?;
-                self.builder.jump(end_block);
-                self.builder.select(else_block);
+fn stmt(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
+    if parser.accept(Token::Return) {
+        let a = expr(parser, fun)?;
+        fun.term_return(a);
+        parser.expect(Token::Semi)?;
+        Ok(())
+    }else if parser.accept(Token::If) {
+        let end = fun.new_block();
+        loop{
+            let els = fun.new_block();
+            let then = fun.new_block();
+            clause(parser, fun)?;
+            parser.expect(Token::Then)?;
+            fun.term_branch(then, els);
+            fun.begin_block(then);
+            block(parser, fun)?;
+            fun.term_jump(end);
+            fun.begin_block(els);
+            if !parser.accept(Token::Elsif){
+                break;
             }
-            if self.accept(Token::Else) {
-                self.block()?;
-            }
-            self.expect(Token::End)?;
-            self.builder.jump(end_block);
-            self.builder.select(end_block);
-            Ok(())
-        } else if self.accept(Token::While) {
-            let cond_block = self.builder.new_block();
-            self.builder.jump(cond_block);
-            self.builder.select(cond_block);
-            self.clause()?;
-            self.expect(Token::Do)?;
-            let loop_block = self.builder.new_block();
-            let end_block = self.builder.new_block();
-            self.builder.jump_if(loop_block, end_block);
-            self.builder.select(loop_block);
-            self.block()?;
-            self.expect(Token::End)?;
-            self.builder.jump(cond_block);
-            self.builder.select(end_block);
-            Ok(())
-        } else {
-            let id = self.ident()?;
-            let sym = self.lookup(id)?;
-            self.expect(Token::Assign)?;
-            let expr_typ = self.expr()?;
-            self.typecheck(&sym.get_typ(), &expr_typ)?;
-            self.expect(Token::Semi)?;
-            self.builder.store(sym);
-            Ok(())
         }
+        if parser.accept(Token::Else) {
+            block(parser, fun)?;
+        }
+        parser.expect(Token::End)?;
+        fun.term_jump(end);
+        fun.begin_block(end);
+        Ok(())
+    } else if parser.accept(Token::While) {
+        let cond = fun.new_block();
+        let lop = fun.new_block();
+        let end = fun.new_block();
+
+        fun.term_jump(cond);
+        fun.begin_block(cond);
+        clause(parser, fun)?;
+        parser.expect(Token::Do)?;
+        fun.term_branch(lop, end);
+        fun.begin_block(lop);
+        block(parser, fun)?;
+        parser.expect(Token::End)?;
+        fun.term_jump(cond);
+        fun.begin_block(end);
+        Ok(())
+    } else {
+        let id = ident(parser)?;
+        parser.expect(Token::Assign)?;
+        let a = expr(parser, fun)?;
+        parser.expect(Token::Semi)?;
+        fun.add_store(id, a);
+        Ok(())
     }
+}
     /*
     // expr -> conjunction {'or' conjunction}
         fn expr(&mut self) -> Parsing<Type>{
             let typ = self.conjunction()?;
-            while self.accept(Token::Or){
+            while parser.accept(Token::Or){
                 let conj_typ = self.conjunction()?;
                 self.typecheck(&typ, &conj_typ)?;
                 self.builder.or();
@@ -383,7 +355,7 @@ impl<I: std::io::Read> Parser<I> {
     // conjunction -> relation { 'and' relation }
         fn conjunction(&mut self) -> Parsing<Type>{
             let typ = self.relation()?;
-            while self.accept(Token::And){
+            while parser.accept(Token::And){
                 let rel_typ = self.relation()?;
                 self.typecheck(&typ, &rel_typ)?;
                 self.builder.and();
@@ -392,162 +364,126 @@ impl<I: std::io::Read> Parser<I> {
         }
     */
 
-    // clause -> [ 'not' ] expr ( '==' | '<' | '<=' | '>=' | '>' ) expr
-    fn clause(&mut self) -> Parsing<()> {
-        let negate = self.accept(Token::Not);
-        let typ = self.expr()?;
+// clause -> [ 'not' ] expr ( '==' | '<' | '<=' | '>=' | '>' ) expr
+fn clause(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
+    let negate = parser.accept(Token::Not);
+    let a = expr(parser, fun)?;
 
-        let op = if self.accept(Token::EqualEqual) {
-            if negate {
-                Builder::comp_neq
-            } else {
-                Builder::comp_eq
-            }
-        } else if self.accept(Token::LessThan) {
-            if negate {
-                Builder::comp_ge
-            } else {
-                Builder::comp_lt
-            }
-        } else if self.accept(Token::GreaterThan) {
-            if negate {
-                Builder::comp_le
-            } else {
-                Builder::comp_gt
-            }
-        } else if self.accept(Token::LessEqual) {
-            if negate {
-                Builder::comp_gt
-            } else {
-                Builder::comp_le
-            }
+    let mut op = if parser.accept(Token::EqualEqual) {
+        Relation::Eq
+    } else if parser.accept(Token::LessThan) {
+        Relation::Lt
+    } else if parser.accept(Token::GreaterThan) {
+        Relation::Gt
+    } else if parser.accept(Token::LessEqual) {
+        Relation::Le
+    } else {
+        parser.expect(Token::GreaterEqual)?;
+        Relation::Ge
+    };
+    if negate {op = op.negate()}
+
+    let b = expr(parser, fun)?;
+    fun.add_cmp(op, a, b);
+    Ok(())
+}
+
+// expr -> ['-'] term { ('+' | '-') term }
+fn expr(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+    let has_minus = parser.accept(Token::Minus);
+    let mut a = term(parser, fun)?;
+    if has_minus {
+        a = fun.add_neg(a);
+    }
+    loop {
+        if parser.accept(Token::Plus) {
+            let b = term(parser, fun)?;
+            a = fun.add_add(a,b);
+        } else if parser.accept(Token::Minus) {
+            let b = term(parser, fun)?;
+            a = fun.add_sub(a,b);
         } else {
-            self.expect(Token::GreaterEqual)?;
-            if negate {
-                Builder::comp_lt
-            } else {
-                Builder::comp_ge
-            }
-        };
-        let sum_typ = self.expr()?;
-        self.typecheck(&typ, &sum_typ)?;
-        op(&mut self.builder);
-        Ok(())
-    }
-
-    // expr -> ['-'] term { ('+' | '-') term }
-    fn expr(&mut self) -> Parsing<Type> {
-        let has_minus = self.accept(Token::Minus);
-        let typ = self.term()?;
-        if has_minus {
-            self.builder.negate();
+            break Ok(a);
         }
-        loop {
-            if self.accept(Token::Plus) {
-                let term_typ = self.term()?;
-                self.typecheck(&typ, &term_typ)?;
-                self.builder.add();
-            } else if self.accept(Token::Minus) {
-                let term_typ = self.term()?;
-                self.typecheck(&typ, &term_typ)?;
-                self.builder.sub();
-            } else {
-                break;
-            }
-        }
-
-        Ok(typ)
     }
+}
 
-    // term <- atom { ('*' | '/' | '%') atom }
-    fn term(&mut self) -> Parsing<Type> {
-        let typ = self.designator()?;
-        loop {
-            if self.accept(Token::Times) {
-                let des_typ = self.designator()?;
-                self.typecheck(&typ, &des_typ)?;
-                self.builder.mul();
-            } else if self.accept(Token::Over) {
-                let des_typ = self.designator()?;
-                self.typecheck(&typ, &des_typ)?;
-                self.builder.div();
-            } else if self.accept(Token::Modulo) {
-                let des_typ = self.designator()?;
-                self.typecheck(&typ, &des_typ)?;
-                self.builder.modulo();
-            } else {
-                break Ok(typ);
+// term <- atom { ('*' | '/' | '%') atom }
+fn term(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+    let mut a = designator(parser, fun)?;
+    loop {
+        if parser.accept(Token::Times) {
+            let b = designator(parser, fun)?;
+            a = fun.add_mul(a,b);
+        } else if parser.accept(Token::Over) {
+            let b = designator(parser, fun)?;
+            a = fun.add_div(a,b);
+        } else if parser.accept(Token::Modulo) {
+            let b = designator(parser, fun)?;
+            a = fun.add_mod(a,b);
+        } else {
+            break Ok(a);
+        }
+    }
+}
+
+//  designator <- atom { '(' [ expr {',' expr } ] ')' }
+
+//  designator <- atom
+fn designator(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+    atom(parser, fun)
+}
+/*
+while parser.accept(Token::LParen){
+    let mut args = Vec::new();
+    if !parser.check(Token::RParen){
+        loop{
+            args.push(self.expr()?);
+            if !parser.accept(Token::Comma){
+                break
             }
         }
     }
+    parser.expect(Token::RParen)?;
+    let mut fun_typ = FuncType::from_args(args).into_type();
+    fun_typ = self.typecheck(&typ, &fun_typ)?;
+    self.builder.icall(typ);
+    typ = fun_typ.get_function().ret.clone();
+}
+*/
 
-    //  designator <- atom { '(' [ expr {',' expr } ] ')' }
-
-    //  designator <- atom
-    fn designator(&mut self) -> Parsing<Type> {
-        let typ = self.atom()?;
-        /*
-        while self.accept(Token::LParen){
-            let mut args = Vec::new();
-            if !self.check(Token::RParen){
-                loop{
-                    args.push(self.expr()?);
-                    if !self.accept(Token::Comma){
-                        break
-                    }
+//  atom <- '(' expr ')'
+//  atom <- Integer
+//  atom <- Id [ '(' [ expr {',' expr } ] ')' ]
+fn atom(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+    if parser.accept(Token::LParen) {
+        let val = expr(parser, fun)?;
+        parser.expect(Token::RParen)?;
+        Ok(val)
+    } else if parser.accept(Token::Integer) {
+        let value = parser.lexer.number;
+        Ok(fun.add_const(value))
+    } else {
+        let id = ident(parser)?;
+        let mut args = Vec::new();
+        if parser.accept(Token::LParen) {
+            if !parser.check(Token::RParen) {
+                args.push(expr(parser, fun)?);
+                while parser.accept(Token::Comma) {
+                    args.push(expr(parser, fun)?);
                 }
             }
-            self.expect(Token::RParen)?;
-            let mut fun_typ = FuncType::from_args(args).into_type();
-            fun_typ = self.typecheck(&typ, &fun_typ)?;
-            self.builder.icall(typ);
-            typ = fun_typ.get_function().ret.clone();
-        }
-        */
-        Ok(typ)
-    }
-
-    //  atom <- '(' expr ')'
-    //  atom <- Integer
-    //  atom <- Id [ '(' [ expr {',' expr } ] ')' ]
-    fn atom(&mut self) -> Parsing<Type> {
-        if self.accept(Token::LParen) {
-            let typ = self.expr()?;
-            self.expect(Token::RParen)?;
-            Ok(typ)
-        } else if self.accept(Token::Integer) {
-            let value = self.lexer.number;
-            self.builder.constant(value);
-            Ok(Type::Integer)
+            parser.expect(Token::RParen)?;
+            Ok(fun.add_call(id, args))
         } else {
-            let id = self.ident()?;
-            let sym = self.lookup(id)?;
-            if sym.is_function() && self.accept(Token::LParen) {
-                let mut args = Vec::new();
-                if !self.check(Token::RParen) {
-                    loop {
-                        args.push(self.expr()?);
-                        if !self.accept(Token::Comma) {
-                            break;
-                        }
-                    }
-                }
-                self.expect(Token::RParen)?;
-                let mut fun_typ = FuncType::from_args(args).into_type();
-                fun_typ = self.typecheck(&sym.get_typ(), &fun_typ)?;
-                self.builder.call(sym.clone());
-                Ok(fun_typ.get_function().ret.clone())
-            } else {
-                self.builder.load(sym.clone());
-                Ok(sym.get_typ())
-            }
+            Ok(fun.add_load(id))
         }
     }
+}
 
-    //ident <- ID
-    fn ident(&mut self) -> Parsing<Ident> {
-        let id = self.lexer.word.clone();
-        self.expect(Token::Ident)?;
-        Ok(id)
-    }
+//ident <- ID
+fn ident(parser: &mut Parser) -> Parsing<Ident> {
+    let id = parser.lexer.word.clone();
+    parser.expect(Token::Ident)?;
+    Ok(id)
 }
