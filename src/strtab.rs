@@ -1,17 +1,17 @@
-use std::sync::RwLock;
 use lazy_static::lazy_static;
+use std::sync::RwLock;
 
-use std::fmt::{Display, Result, Formatter};
+use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Ident(usize);
 
-lazy_static!{
+lazy_static! {
     static ref WORDS: RwLock<Vec<String>> = RwLock::new(Vec::new());
 }
 
-impl Display for Ident{
-    fn fmt(&self, f: &mut Formatter) -> Result{
+impl Display for Ident {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         WORDS.read().unwrap()[self.0].fmt(f)
     }
 }
@@ -28,4 +28,3 @@ impl Ident {
         return word;
     }
 }
-   

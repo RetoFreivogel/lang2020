@@ -3,14 +3,13 @@ use std::fmt;
 //use crate::module::Symbol;
 use crate::strtab::Ident;
 
-
 #[derive(Debug)]
-pub struct Module{
+pub struct Module {
     pub items: Vec<Function>,
 }
-impl fmt::Display for Module{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        for item in &self.items{
+impl fmt::Display for Module {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for item in &self.items {
             writeln!(f, "{}", item)?;
         }
         Ok(())
@@ -18,53 +17,51 @@ impl fmt::Display for Module{
 }
 
 #[derive(Debug)]
-pub struct Function{
+pub struct Function {
     pub id: Ident,
     pub vars: Vec<Ident>,
     blocks: Vec<Block>,
 }
-impl fmt::Display for Function{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}:", self.id)?;
-        for block in &self.blocks{
+        for block in &self.blocks {
             block.fmt(f)?;
         }
         Ok(())
     }
 }
-impl Function{
-    fn map_block_ids<F: Fn(usize)->usize>(&mut self, f: F){
-        for block in self.blocks.iter_mut(){
-            match block.terminator{
-                Some(Terminator::Jump(ref mut t))      => 
-                    t.0 = f(t.0),
+impl Function {
+    fn map_block_ids<F: Fn(usize) -> usize>(&mut self, f: F) {
+        for block in self.blocks.iter_mut() {
+            match block.terminator {
+                Some(Terminator::Jump(ref mut t)) => t.0 = f(t.0),
                 Some(Terminator::Branch(ref mut r, ref mut l)) => {
                     r.0 = f(r.0);
                     l.0 = f(l.0);
-                },
-                _ => {},
+                }
+                _ => {}
             }
-        }        
+        }
     }
 
-    pub fn renumber_blocks(&mut self){
+    pub fn renumber_blocks(&mut self) {
         let mut map = vec![0; self.blocks.len()];
-        for i in 0..self.blocks.len(){
+        for i in 0..self.blocks.len() {
             map[self.blocks[i].id.0] = i;
             self.blocks[i].id.0 = i;
         }
-        self.map_block_ids(|i|map[i]);
+        self.map_block_ids(|i| map[i]);
     }
 
-    pub fn remove_blocks(&mut self){
-
+    pub fn remove_blocks(&mut self) {
         //remove jumps to empty blocks
         println!("{}", self);
-        for i in 0..self.blocks.len(){
-            if self.blocks[i].instructions.is_empty(){
-                if let Some(Terminator::Jump(t)) = self.blocks[i].terminator{
+        for i in 0..self.blocks.len() {
+            if self.blocks[i].instructions.is_empty() {
+                if let Some(Terminator::Jump(t)) = self.blocks[i].terminator {
                     let id = self.blocks[i].id.0;
-                    self.map_block_ids(|i|if i == id { t.0 } else { i });
+                    self.map_block_ids(|i| if i == id { t.0 } else { i });
                     println!("{} -> {}", id, t.0);
                 }
             }
@@ -74,42 +71,39 @@ impl Function{
         //find unreachable blocks
         let mut reachable = vec![false; self.blocks.len()];
         let mut queue = vec![0];
-        while let Some(i) = queue.pop(){
-            if reachable[i]{
+        while let Some(i) = queue.pop() {
+            if reachable[i] {
                 continue;
             }
             reachable[i] = true;
-            match self.blocks[i].terminator{
-                Some(Terminator::Jump(t)) => 
-                    queue.push(t.0),
-                Some(Terminator::Branch(r,l)) => {
+            match self.blocks[i].terminator {
+                Some(Terminator::Jump(t)) => queue.push(t.0),
+                Some(Terminator::Branch(r, l)) => {
                     queue.push(r.0);
                     queue.push(l.0);
-                },
+                }
                 _ => {}
             }
         }
 
-        //move unreachable blocks to the end 
+        //move unreachable blocks to the end
         let mut i = 0;
         let mut removed = 0;
-        while i + removed < self.blocks.len(){
-
-            if reachable[self.blocks[i].id.0]{
+        while i + removed < self.blocks.len() {
+            if reachable[self.blocks[i].id.0] {
                 i += 1;
-            }else{
+            } else {
                 removed += 1;
                 let second = self.blocks.len() - removed;
                 self.blocks.swap(i, second);
             }
         }
         self.renumber_blocks();
-        for _ in 0..removed{
+        for _ in 0..removed {
             self.blocks.pop();
         }
     }
 }
-
 
 /*
             if self.blocks[i].instructions.is_empty(){
@@ -120,15 +114,15 @@ impl Function{
 */
 
 #[derive(Debug)]
-pub struct FunctionBuilder{
+pub struct FunctionBuilder {
     fun: Function,
     block_n: usize,
     value_n: usize,
 }
-impl FunctionBuilder{
-    pub fn new(id: Ident) -> FunctionBuilder{
-        FunctionBuilder{
-            fun: Function{
+impl FunctionBuilder {
+    pub fn new(id: Ident) -> FunctionBuilder {
+        FunctionBuilder {
+            fun: Function {
                 id,
                 vars: Vec::new(),
                 blocks: vec![Block::new(BlockId(0))],
@@ -137,138 +131,138 @@ impl FunctionBuilder{
             value_n: 0,
         }
     }
-    
-    pub fn done(self) -> Function{
+
+    pub fn done(self) -> Function {
         self.fun
     }
-    
-    pub fn new_block(&mut self) -> BlockId{
+
+    pub fn new_block(&mut self) -> BlockId {
         self.block_n += 1;
         BlockId(self.block_n)
     }
 
-    pub fn begin_block(&mut self, id: BlockId){
+    pub fn begin_block(&mut self, id: BlockId) {
         self.fun.blocks.push(Block::new(id));
     }
-    
-    fn new_temp(&mut self) -> Value{
+
+    fn new_temp(&mut self) -> Value {
         self.value_n += 1;
         Value::Temp(self.value_n)
     }
-    
-    pub fn add_var(&mut self, arg: Ident){
+
+    pub fn add_var(&mut self, arg: Ident) {
         self.fun.vars.push(arg);
     }
 
-    fn get_current_block(&mut self) -> &mut Block{
-        let index = self.fun.blocks.len()-1;
-        &mut self.fun.blocks[index]     
+    fn get_current_block(&mut self) -> &mut Block {
+        let index = self.fun.blocks.len() - 1;
+        &mut self.fun.blocks[index]
     }
-    
-    fn append_instruction(&mut self, i: Instruction){
+
+    fn append_instruction(&mut self, i: Instruction) {
         let block = self.get_current_block();
         block.instructions.push(i);
     }
 
-    fn set_terminator(&mut self, term: Terminator){
+    fn set_terminator(&mut self, term: Terminator) {
         let block = self.get_current_block();
-        if block.terminator.is_none(){
+        if block.terminator.is_none() {
             block.terminator = Some(term);
         }
     }
 
-    pub fn term_branch(&mut self, then: BlockId, els: BlockId){
+    pub fn term_branch(&mut self, then: BlockId, els: BlockId) {
         self.set_terminator(Terminator::Branch(then, els));
     }
 
-    pub fn term_jump(&mut self, target: BlockId){
+    pub fn term_jump(&mut self, target: BlockId) {
         self.set_terminator(Terminator::Jump(target));
     }
 
-    pub fn term_return(&mut self, ret: Value){
+    pub fn term_return(&mut self, ret: Value) {
         self.set_terminator(Terminator::Return(ret));
     }
 
-    pub fn add_call(&mut self, id: Ident, args: Vec<Value>) -> Value{
+    pub fn add_call(&mut self, id: Ident, args: Vec<Value>) -> Value {
         let ret = self.new_temp();
         self.append_instruction(Instruction::Call(ret, id, args));
         ret
     }
 
-    pub fn add_neg(&mut self, a: Value) -> Value{
+    pub fn add_neg(&mut self, a: Value) -> Value {
         let ret = self.new_temp();
         let zero = Value::Const(0);
         self.append_instruction(Instruction::Sub(ret, zero, a));
-        ret     
-    }
-
-    pub fn add_cmp(&mut self, rel: Relation, a: Value, b: Value){
-        self.append_instruction(Instruction::Cmp(rel,a,b));
-    }
-
-    pub fn add_add(&mut self, a: Value, b: Value) -> Value{
-        let ret = self.new_temp();
-        self.append_instruction(Instruction::Add(ret,a,b));
         ret
     }
 
-    pub fn add_sub(&mut self, a: Value, b: Value) -> Value{
+    pub fn add_cmp(&mut self, rel: Relation, a: Value, b: Value) {
+        self.append_instruction(Instruction::Cmp(rel, a, b));
+    }
+
+    pub fn add_add(&mut self, a: Value, b: Value) -> Value {
         let ret = self.new_temp();
-        self.append_instruction(Instruction::Sub(ret,a,b));
+        self.append_instruction(Instruction::Add(ret, a, b));
         ret
     }
 
-    pub fn add_mul(&mut self, a: Value, b: Value) -> Value{
+    pub fn add_sub(&mut self, a: Value, b: Value) -> Value {
         let ret = self.new_temp();
-        self.append_instruction(Instruction::Mul(ret,a,b));
+        self.append_instruction(Instruction::Sub(ret, a, b));
         ret
     }
 
-    pub fn add_mod(&mut self, a: Value, b: Value) -> Value{
+    pub fn add_mul(&mut self, a: Value, b: Value) -> Value {
         let ret = self.new_temp();
-        self.append_instruction(Instruction::Mod(ret,a,b));
+        self.append_instruction(Instruction::Mul(ret, a, b));
         ret
     }
 
-    pub fn add_div(&mut self, a: Value, b: Value) -> Value{
+    pub fn add_mod(&mut self, a: Value, b: Value) -> Value {
         let ret = self.new_temp();
-        self.append_instruction(Instruction::Div(ret,a,b));
+        self.append_instruction(Instruction::Mod(ret, a, b));
         ret
     }
 
-    pub fn add_const(&mut self, c: usize) -> Value{
+    pub fn add_div(&mut self, a: Value, b: Value) -> Value {
+        let ret = self.new_temp();
+        self.append_instruction(Instruction::Div(ret, a, b));
+        ret
+    }
+
+    pub fn add_const(&mut self, c: usize) -> Value {
         Value::Const(c)
     }
 
-    pub fn add_load(&mut self, id: Ident) -> Value{
+    pub fn add_load(&mut self, id: Ident) -> Value {
         Value::Sym(id)
     }
 
-    pub fn add_store(&mut self, id: Ident, b: Value){
+    pub fn add_store(&mut self, id: Ident, b: Value) {
         let ret = Value::Sym(id);
-        self.append_instruction(Instruction::Mov(ret, b));        
+        self.append_instruction(Instruction::Mov(ret, b));
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockId(usize);
-impl fmt::Display for BlockId{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        write!(f, ".{}", self.0)   
+impl fmt::Display for BlockId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, ".{}", self.0)
     }
-} 
+}
 
 #[derive(Debug)]
-struct Block{
+struct Block {
     id: BlockId,
     terminator: Option<Terminator>,
     instructions: Vec<Instruction>,
     var_use: u64,
     var_set: u64,
 }
-impl Block{
-    fn new(id: BlockId) -> Block{
-        Block{
+impl Block {
+    fn new(id: BlockId) -> Block {
+        Block {
             id,
             terminator: None,
             instructions: Vec::new(),
@@ -276,32 +270,31 @@ impl Block{
             var_set: 0,
         }
     }
-
 }
-impl fmt::Display for Block{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:", self.id)?;
-        for instr in &self.instructions{
+        for instr in &self.instructions {
             instr.fmt(f)?;
         }
-        match &self.terminator{
-            Some(Terminator::Branch(l,r)) => writeln!(f, "\tbr {} {}", l, r),
-            Some(Terminator::Jump(t))     => writeln!(f, "\tjmp {}", t),
-            Some(Terminator::Return(v))   => writeln!(f, "\tret {}", v),
+        match &self.terminator {
+            Some(Terminator::Branch(l, r)) => writeln!(f, "\tbr {} {}", l, r),
+            Some(Terminator::Jump(t)) => writeln!(f, "\tjmp {}", t),
+            Some(Terminator::Return(v)) => writeln!(f, "\tret {}", v),
             _ => Ok(()),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Terminator{
+enum Terminator {
     Branch(BlockId, BlockId),
     Jump(BlockId),
     Return(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Instruction{
+enum Instruction {
     Call(Value, Ident, Vec<Value>),
     Mov(Value, Value),
     Cmp(Relation, Value, Value),
@@ -309,71 +302,63 @@ enum Instruction{
     Sub(Value, Value, Value),
     Mul(Value, Value, Value),
     Mod(Value, Value, Value),
-    Div(Value, Value, Value),   
+    Div(Value, Value, Value),
 }
 
-impl fmt::Display for Instruction{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Instruction::*;
-        match self{
-            Call(r, id, args) =>{
+        match self {
+            Call(r, id, args) => {
                 write!(f, "\t{} = {}", r, id)?;
-                for arg in args{
+                for arg in args {
                     write!(f, " {}", arg)?;
                 }
                 writeln!(f, "")
             }
-            Cmp(r, a, b) => 
-                writeln!(f, "\tcmp {} {} {}", a, r, b),
-            Mov(a, b) => 
-                writeln!(f, "\t{} = {}", a, b),
-            Add(r, a, b) => 
-                writeln!(f, "\t{} = {} + {}", r, a, b),
-            Sub(r, a, b) => 
-                writeln!(f, "\t{} = {} - {}", r, a, b),
-            Mul(r, a, b) => 
-                writeln!(f, "\t{} = {} * {}", r, a, b),
-            Mod(r, a, b) => 
-                writeln!(f, "\t{} = {} % {}", r, a, b),
-            Div(r, a, b) => 
-                writeln!(f, "\t{} = {} / {}", r, a, b),   
+            Cmp(r, a, b) => writeln!(f, "\tcmp {} {} {}", a, r, b),
+            Mov(a, b) => writeln!(f, "\t{} = {}", a, b),
+            Add(r, a, b) => writeln!(f, "\t{} = {} + {}", r, a, b),
+            Sub(r, a, b) => writeln!(f, "\t{} = {} - {}", r, a, b),
+            Mul(r, a, b) => writeln!(f, "\t{} = {} * {}", r, a, b),
+            Mod(r, a, b) => writeln!(f, "\t{} = {} % {}", r, a, b),
+            Div(r, a, b) => writeln!(f, "\t{} = {} / {}", r, a, b),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Value{
+pub enum Value {
     Temp(usize),
     Const(usize),
     Sym(Ident),
 }
-impl fmt::Display for Value{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        match self{
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
             Value::Temp(n) => write!(f, "%{}", n),
             Value::Const(n) => write!(f, "{}", n),
-            Value::Sym(id) => write!(f, "%{}", id),            
+            Value::Sym(id) => write!(f, "%{}", id),
         }
-        
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Type{
+pub enum Type {
     Id(Ident),
-    Func{args:Vec<Ident>, ret: Ident},
+    Func { args: Vec<Ident>, ret: Ident },
 }
-impl fmt::Display for Type{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        match self{
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
             Type::Id(id) => id.fmt(f),
-            Type::Func{args, ret} => {
+            Type::Func { args, ret } => {
                 write!(f, "(")?;
-                for (i, arg) in args.iter().enumerate(){
+                for (i, arg) in args.iter().enumerate() {
                     arg.fmt(f)?;
-                    if i < args.len() - 1{
+                    if i < args.len() - 1 {
                         write!(f, ",")?;
-                    } 
+                    }
                 }
                 write!(f, "){}", ret)
             }
@@ -382,7 +367,7 @@ impl fmt::Display for Type{
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Relation{
+pub enum Relation {
     Eq,
     Neq,
     Lt,
@@ -390,22 +375,22 @@ pub enum Relation{
     Le,
     Ge,
 }
-impl fmt::Display for Relation{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+impl fmt::Display for Relation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Relation::*;
-        match self{
-            Eq   => write!(f, "=="),
-            Neq  => write!(f, "<>"),
-            Lt   => write!(f, "<"),
-            Gt   => write!(f, ">"),
-            Le   => write!(f, "<="),
-            Ge   => write!(f, ">="),
+        match self {
+            Eq => write!(f, "=="),
+            Neq => write!(f, "<>"),
+            Lt => write!(f, "<"),
+            Gt => write!(f, ">"),
+            Le => write!(f, "<="),
+            Ge => write!(f, ">="),
         }
     }
 }
 
-impl Relation{
-    pub fn negate(self) -> Relation{
+impl Relation {
+    pub fn negate(self) -> Relation {
         match self {
             Relation::Eq => Relation::Neq,
             Relation::Neq => Relation::Eq,
@@ -416,7 +401,6 @@ impl Relation{
         }
     }
 }
-
 
 /*
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -843,4 +827,3 @@ impl Builder {
     }
 }
 */
-

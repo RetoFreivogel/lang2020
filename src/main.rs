@@ -18,7 +18,7 @@ fn main() {
     let mut parser = Parser::new_file(filename);
     let mut module = parser::module(&mut parser);
 
-    for item in module.items.iter_mut(){
+    for item in module.items.iter_mut() {
         item.remove_blocks();
     }
 

@@ -218,8 +218,8 @@ impl std::fmt::Display for LexPos {
     }
 }
 
-use std::fs::File;
 use crate::strtab::Ident;
+use std::fs::File;
 use std::io::Read;
 
 //Lexer----------------------------------------------------------------------
