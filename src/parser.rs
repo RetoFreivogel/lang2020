@@ -188,32 +188,28 @@ pub fn module(parser: &mut Parser) -> crate::builder::Module {
     crate::builder::Module { items }
 }
 
-//item -> 'fun' ID funhead funbody
+//item -> 'fun' ID '(' [ ID { ',' ID } ] ')' ':' type_dec funbody
 fn item(parser: &mut Parser) -> Parsing<Function> {
     parser.expect(Token::Fun)?;
     let id = ident(parser)?;
 
-    let mut fun = FunctionBuilder::new(id);
-    funhead(parser, &mut fun)?;
-    funbody(parser, &mut fun)?;
-    let fun = fun.done();
-    Ok(fun)
-}
-
-// funhead -> '(' [ ID { ',' ID } ] ')' ':' type_dec
-fn funhead(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
+    let mut args = Vec::new();
     parser.expect(Token::LParen)?;
     if !parser.check(Token::RParen) {
-        fun.add_var(ident(parser)?);
+        args.push(ident(parser)?);
         while parser.accept(Token::Comma) {
-            fun.add_var(ident(parser)?);
+            args.push(ident(parser)?);
         }
     }
     parser.expect(Token::RParen)?;
     parser.expect(Token::Colon)?;
-    type_dec(parser)?;
-    //fun.typ = Some(type_dec(parser)?);
-    Ok(())
+    let typ = type_dec(parser)?;
+
+    let mut fun = FunctionBuilder::new(id, args, typ);
+
+    funbody(parser, &mut fun)?;
+    let fun = fun.done();
+    Ok(fun)
 }
 
 // funbody  '=' expr ';'
@@ -227,6 +223,8 @@ fn funbody(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     } else {
         parser.expect(Token::Is)?;
         vardec(parser, fun)?;
+        let start = fun.new_block();
+        fun.begin_block(start);
         block(parser, fun)?;
         parser.expect(Token::End)?;
         Ok(())
@@ -332,7 +330,7 @@ fn stmt(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
         parser.expect(Token::Assign)?;
         let a = expr(parser, fun)?;
         parser.expect(Token::Semi)?;
-        fun.add_store(id, a);
+        fun.add_store(&id, a);
         Ok(())
     }
 }
@@ -474,7 +472,7 @@ fn atom(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
             parser.expect(Token::RParen)?;
             Ok(fun.add_call(id, args))
         } else {
-            Ok(fun.add_load(id))
+            Ok(fun.add_load(&id))
         }
     }
 }
