@@ -19,15 +19,15 @@ end
 #    end
 #end
 
-fun sign(i) : (Int)Int is
-    if i < 0 then
-        return -1;
-    elsif i > 0 then
-        return 1;
-    else
-        return 0;
-    end
-end
+#fun sign(i) : (Int)Int is
+#    if i < 0 then
+#        return -1;
+#    elsif i > 0 then
+#        return 1;
+#    else
+#        return 0;
+#    end
+#end
 
 #fun abs(i) : (Int)Int is
 #    if i < 0 then
@@ -44,16 +44,27 @@ fun fact(n) : (Int)Int is
     end
 end
 
-#fun gcd(a, b) : (Int, Int)Int is 
-#    while not a == b do
-#        if a < b then
-#            b := b - a;
-#        else
-#            a := a - b;
-#        end
-#    end
-#    return a;
-#end
+fun gcd(a, b) : (Int, Int)Int is 
+    while not a == b do
+        if a < b then
+            b := b - a;
+        else
+            a := a - b;
+        end
+    end
+    return a;
+end
+
+fun sqrt(n) : (Int)Int is
+    var b, i : Int;
+    i := 0;
+    b := 2;
+    while i < 10 do
+        b := (b + n / b) / 2;
+        i := i + 1;
+    end
+    return b;
+end
 
 #fun min(a, b) : (Int,Int)Int is
 #    if a < b then 
@@ -94,27 +105,17 @@ end
 #    return a + b;
 #end
     
-fun pow(b, n) : (Int,Int)Int is
-    var p : Int;
-    if n == 0 then
-        return 1;
-    end
-    p := pow(b, n / 2);
-    p := p * p;
-    if n % 2 == 1 then
-        p := p * b;
-    end
-    return p;
-end
-
 # computes f*(b^n)
-#fun pow_mul(b, n, f) : (Int,Int,Int)Int is 
-#    if n == 0 then
-#        return f;
-#    elsif n % 2 == 1 then
-#        return pow_mul(b*b, n/2, f*b);
-#    else
-#        return pow_mul(b*b, n/2, f);
-#    end
-#end
+fun pow(b, n) : (Int,Int)Int is
+    var f: Int;
+    f := 1; 
+    while n > 0 do
+        if n % 2 == 1 then
+            f := f*b;
+        end
+        n := n / 2;
+        b := b * b;
+    end
+    return f;
+end
 

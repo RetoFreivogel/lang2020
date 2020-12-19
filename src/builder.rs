@@ -30,12 +30,16 @@ impl fmt::Display for Function {
         write!(f, "{}(", self.id)?;
         for (i, arg) in self.args.iter().enumerate() {
             arg.fmt(f)?;
-            if i < self.args.len()-1 {write!(f, ", ")?;}
+            if i < self.args.len() - 1 {
+                write!(f, ", ")?;
+            }
         }
         write!(f, " | ")?;
         for (i, var) in self.vars.iter().enumerate() {
             var.fmt(f)?;
-            if i < self.vars.len()-1 {write!(f, ", ")?;}
+            if i < self.vars.len() - 1 {
+                write!(f, ", ")?;
+            }
         }
         writeln!(f, ")")?;
 
@@ -65,7 +69,7 @@ impl Function {
         //remove jumps to empty blocks
         for i in 0..self.blocks.len() {
             if self.blocks[i].instructions.is_empty() {
-                if let Some(Terminator::Jump(t, _)) = self.blocks[i].terminator {
+                if let Some(Terminator::Jump(t)) = self.blocks[i].terminator {
                     let id = self.blocks[i].id.0;
                     self.map_jump_ids(|i| if i == id { t.0 } else { i });
                     println!("{} -> {}", id, t.0);
@@ -82,8 +86,8 @@ impl Function {
             }
             reachable[i] = true;
             match self.blocks[i].terminator {
-                Some(Terminator::Jump(t, _)) => queue.push(t.0),
-                Some(Terminator::Branch(r, _, l, _)) => {
+                Some(Terminator::Jump(t)) => queue.push(t.0),
+                Some(Terminator::Branch(r, l)) => {
                     queue.push(r.0);
                     queue.push(l.0);
                 }
@@ -125,7 +129,8 @@ impl fmt::Display for BlockId {
 #[derive(Debug)]
 struct Block {
     id: BlockId,
-    args: Vec<Value>,
+    args_in: Vec<Value>,
+    args_out: Vec<Value>,
     terminator: Option<Terminator>,
     instructions: Vec<Instruction>,
     var_use: u64,
@@ -135,7 +140,8 @@ impl Block {
     fn new(id: BlockId) -> Block {
         Block {
             id,
-            args: Vec::new(),
+            args_in: Vec::new(),
+            args_out: Vec::new(),
             terminator: None,
             instructions: Vec::new(),
             var_use: 0,
@@ -145,10 +151,10 @@ impl Block {
 
     fn map_jump_ids<F: Fn(usize) -> usize>(&mut self, f: &F) {
         match &mut self.terminator {
-            Some(Terminator::Jump(t, _)) => {
+            Some(Terminator::Jump(t)) => {
                 t.0 = f(t.0);
             }
-            Some(Terminator::Branch(r, _, l, _)) => {
+            Some(Terminator::Branch(r, l)) => {
                 r.0 = f(r.0);
                 l.0 = f(l.0);
             }
@@ -156,19 +162,25 @@ impl Block {
         }
     }
 
-    fn map_value_ids<F: Fn(&Value)->Value>(&mut self, f: &F) {
-        for instr in self.instructions.iter_mut(){
+    fn map_value_ids<F: Fn(&Value) -> Value>(&mut self, f: &F) {
+        for instr in self.instructions.iter_mut() {
             instr.map_value_ids(f);
         }
     }
-
 }
 impl fmt::Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}(", self.id)?;
-        for (i, arg) in self.args.iter().enumerate(){
+        for (i, arg) in self.args_in.iter().enumerate() {
             write!(f, "{}", arg)?;
-            if i < self.args.len()-1{
+            if i < self.args_in.len() - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, ") -> (")?;
+        for (i, arg) in self.args_out.iter().enumerate() {
+            write!(f, "{}", arg)?;
+            if i < self.args_out.len() - 1 {
                 write!(f, ", ")?;
             }
         }
@@ -178,27 +190,12 @@ impl fmt::Display for Block {
             instr.fmt(f)?;
         }
         match &self.terminator {
-            Some(Terminator::Branch(l, l_args, r, r_args)) => {
-                write!(f, "\t\t\tbr  {}", l)?;
-                for arg in l_args{
-                    write!(f, " {}", arg)?;
-                }
-                write!(f, "\n\t\t\tjmp {}", r)?;
-                for arg in r_args{
-                    write!(f, " {}", arg)?;
-                }
-                writeln!(f, "")
+            Some(Terminator::Branch(l, r)) => {
+                writeln!(f, "\tbr  {}", l)?;
+                writeln!(f, "\tjmp {}", r)
             }
-            Some(Terminator::Jump(t, t_args)) => {
-                write!(f, "\t\t\tjmp {}", t)?;
-                for arg in t_args{
-                    write!(f, " {}", arg)?;
-                }
-                writeln!(f, "")
-            }
-            Some(Terminator::Return(v)) => {
-                writeln!(f, "\t\t\tret {}", v)
-            }
+            Some(Terminator::Jump(t)) => writeln!(f, "\tjmp {}", t),
+            Some(Terminator::Return(v)) => writeln!(f, "\tret {}", v),
             _ => Ok(()),
         }
     }
@@ -221,80 +218,78 @@ impl fmt::Display for Instruction {
         use Instruction::*;
         match self {
             Call(r, id, args) => {
-                write!(f, "\t\t\t{} = {}", r, id)?;
+                write!(f, "\t{} = {}", r, id)?;
                 for arg in args {
                     write!(f, " {}", arg)?;
                 }
                 writeln!(f, "")
             }
-            Cmp(r, a, b) => writeln!(f, "\t\t\tcmp {} {} {}", a, r, b),
-            Mov(a, b) => writeln!(f, "\t\t\t{} = {}", a, b),
-            Add(r, a, b) => writeln!(f, "\t\t\t{} = {} + {}", r, a, b),
-            Sub(r, a, b) => writeln!(f, "\t\t\t{} = {} - {}", r, a, b),
-            Mul(r, a, b) => writeln!(f, "\t\t\t{} = {} * {}", r, a, b),
-            Mod(r, a, b) => writeln!(f, "\t\t\t{} = {} % {}", r, a, b),
-            Div(r, a, b) => writeln!(f, "\t\t\t{} = {} / {}", r, a, b),
+            Cmp(r, a, b) => writeln!(f, "\tcmp {} {} {}", a, r, b),
+            Mov(a, b) => writeln!(f, "\t{} = {}", a, b),
+            Add(r, a, b) => writeln!(f, "\t{} = {} + {}", r, a, b),
+            Sub(r, a, b) => writeln!(f, "\t{} = {} - {}", r, a, b),
+            Mul(r, a, b) => writeln!(f, "\t{} = {} * {}", r, a, b),
+            Mod(r, a, b) => writeln!(f, "\t{} = {} % {}", r, a, b),
+            Div(r, a, b) => writeln!(f, "\t{} = {} / {}", r, a, b),
         }
     }
 }
 
-impl Instruction{
-    fn map_value_ids<F: Fn(&Value)->Value>(&mut self, f: &F) {
+impl Instruction {
+    fn map_value_ids<F: Fn(&Value) -> Value>(&mut self, f: &F) {
         use Instruction::*;
-        match self{
-            Call(val1, _, vals) =>{
+        match self {
+            Call(val1, _, vals) => {
                 *val1 = f(val1);
-                for val in vals{
+                for val in vals {
                     *val = f(val);
                 }
-            },
-            Mov(val1, val2) =>{
+            }
+            Mov(val1, val2) => {
                 *val1 = f(val1);
                 *val2 = f(val2);
-            },
-            Cmp(_, val1, val2)=>{
+            }
+            Cmp(_, val1, val2) => {
                 *val1 = f(val1);
                 *val2 = f(val2);
-            },
-            Add(val1, val2, val3)=>{
-                *val1 = f(val1);
-                *val2 = f(val2);
-                *val3 = f(val3);
-            },
-            Sub(val1, val2, val3)=>{
+            }
+            Add(val1, val2, val3) => {
                 *val1 = f(val1);
                 *val2 = f(val2);
                 *val3 = f(val3);
-            },
-            Mul(val1, val2, val3)=>{
+            }
+            Sub(val1, val2, val3) => {
                 *val1 = f(val1);
                 *val2 = f(val2);
                 *val3 = f(val3);
-            },
-            Mod(val1, val2, val3)=>{
+            }
+            Mul(val1, val2, val3) => {
                 *val1 = f(val1);
                 *val2 = f(val2);
                 *val3 = f(val3);
-            },
-            Div(val1, val2, val3)=>{
+            }
+            Mod(val1, val2, val3) => {
                 *val1 = f(val1);
                 *val2 = f(val2);
                 *val3 = f(val3);
-            },
+            }
+            Div(val1, val2, val3) => {
+                *val1 = f(val1);
+                *val2 = f(val2);
+                *val3 = f(val3);
+            }
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct FunctionBuilder {
     fun: Function,
     current_ids: Vec<Ident>,
-    current_vals: Vec<Value>,
     block_n: usize,
 }
 impl FunctionBuilder {
-    pub fn new(id: Ident, args:Vec<Ident>, typ: Type) -> FunctionBuilder {
+    pub fn new(id: Ident, args: Vec<Ident>, typ: Type) -> FunctionBuilder {
         let fb = FunctionBuilder {
             fun: Function {
                 id,
@@ -305,7 +300,6 @@ impl FunctionBuilder {
                 blocks: Vec::new(),
             },
             current_ids: args,
-            current_vals: Vec::new(),
             block_n: 0,
         };
         fb
@@ -323,12 +317,12 @@ impl FunctionBuilder {
 
     pub fn begin_block(&mut self, id: BlockId) {
         self.fun.blocks.push(Block::new(id));
-        self.current_vals.clear();
-        for _ in 0..self.current_ids.len(){
-            let val = self.new_temp();
-            self.current_vals.push(val);
+        let mut args = Vec::new();
+        for _ in 0..self.current_ids.len() {
+            args.push(self.new_temp());
         }
-        self.get_current_block().args = self.current_vals.clone();
+        self.get_current_block().args_in = args.clone();
+        self.get_current_block().args_out = args;
     }
 
     fn new_temp(&mut self) -> Value {
@@ -359,14 +353,11 @@ impl FunctionBuilder {
     }
 
     pub fn term_branch(&mut self, then: BlockId, els: BlockId) {
-        let then_args = self.current_vals.clone();
-        let else_args = self.current_vals.clone();
-        self.set_terminator(Terminator::Branch(then, then_args, els, else_args));
+        self.set_terminator(Terminator::Branch(then, els));
     }
 
     pub fn term_jump(&mut self, target: BlockId) {
-        let args = self.current_vals.clone();
-        self.set_terminator(Terminator::Jump(target, args));
+        self.set_terminator(Terminator::Jump(target));
     }
 
     pub fn term_return(&mut self, ret: Value) {
@@ -425,32 +416,28 @@ impl FunctionBuilder {
     }
 
     pub fn add_load(&mut self, ident: &Ident) -> Value {
-        if let Some(pos) = self.current_ids.iter().position(|id| id == ident){
-            self.current_vals[pos]
-        }else{
+        if let Some(pos) = self.current_ids.iter().position(|id| id == ident) {
+            self.get_current_block().args_out[pos]
+        } else {
             panic!("Symbol '{}' not found", ident);
         }
     }
 
     pub fn add_store(&mut self, ident: &Ident, val: Value) {
-        if let Some(pos) = self.current_ids.iter().position(|id| id == ident){
-            self.current_vals[pos] = val;
-        }else{
-            self.current_ids.push(ident.clone());
-            self.current_vals.push(val);
+        if let Some(pos) = self.current_ids.iter().position(|id| id == ident) {
+            self.get_current_block().args_out[pos] = val;
+        } else {
+            panic!("Undefined Symbol");
         }
     }
 }
 
-
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Terminator {
-    Branch(BlockId, Vec<Value>, BlockId, Vec<Value>),
-    Jump(BlockId, Vec<Value>),
+    Branch(BlockId, BlockId),
+    Jump(BlockId),
     Return(Value),
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value {
