@@ -16,11 +16,7 @@ fn main() {
     use parser::Parser;
     let filename = "input.txt".to_string();
     let mut parser = Parser::new_file(filename);
-    let mut module = parser::module(&mut parser);
-
-    for item in module.items.iter_mut() {
-        item.remove_blocks();
-    }
+    let module = parser::module(&mut parser);
 
     println!("OUTPUT--------------------------\n");
     println!("{}\n", module);

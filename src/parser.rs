@@ -6,9 +6,8 @@
     use combinators?
 */
 
-use crate::builder::{Function, FunctionBuilder, Relation, Type, Value};
+use crate::builder::{Function, FunctionBuilder, Type, Relation};
 use crate::lexer::{LexPos, Lexer, Token, TokenSet};
-//use crate::module::{FuncType, Module, Symbol, Type};
 use crate::strtab::Ident;
 use std::fmt;
 
@@ -70,9 +69,6 @@ pub struct Parser {
     lexer: Lexer,
     current: Token,
     tried: TokenSet,
-    //module: Module,
-    //current_fun: FuncType,
-    //builder: Builder,
 }
 impl Parser {
     pub fn new_file(filename: String) -> Parser {
@@ -80,22 +76,10 @@ impl Parser {
             lexer: Lexer::new(filename),
             current: Token::Error,
             tried: TokenSet::new(),
-            //module: Module::new(),
-            //current_fun: FuncType {
-            //    args: Vec::new(),
-            //    ret: Type::Unknown,
-            //},
-            //builder: Builder::new(),
         };
         p.current = p.lexer.next();
         p
     }
-
-    /*
-    pub fn done(self) -> (Module, Builder) {
-        (self.module, self.builder)
-    }
-    */
 
     //error handling and parser utilities-------------------------------------------
 
@@ -116,33 +100,6 @@ impl Parser {
             msg: text.to_string(),
         })
     }
-
-    /*
-        fn typecheck(&mut self, a: &Type, b: &Type) -> Parsing<Type> {
-            let c = a.unify(b);
-            if c.is_some() {
-                return Ok(c.unwrap());
-            }
-            self.current = Token::Error;
-            Err(CompileError::TypeErr {
-                position: self.lexer.pos(),
-                left: a.clone(),
-                right: b.clone(),
-            })
-        }
-
-        fn lookup(&mut self, id: Ident) -> Parsing<Symbol> {
-            let sym = self.module.get_sym(&id);
-            if sym.is_none() {
-                Err(CompileError::UndefErr {
-                    position: self.lexer.pos(),
-                    id: id.clone(),
-                })
-            } else {
-                Ok(sym.unwrap())
-            }
-        }
-    */
 
     fn check(&self, t: Token) -> bool {
         self.current == t
@@ -179,7 +136,7 @@ pub fn module(parser: &mut Parser) -> crate::builder::Module {
         if parser.check(Token::Fun) {
             match item(parser) {
                 Ok(fun) => items.push(fun),
-                Err(e) => eprintln!("{:?}", e),
+                Err(e) => eprintln!("{}", e),
             }
         } else {
             parser.current = parser.lexer.next();
@@ -216,15 +173,15 @@ fn item(parser: &mut Parser) -> Parsing<Function> {
 // funbody -> 'is' vardec block 'end'
 fn funbody(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     if parser.accept(Token::Equal) {
-        let a = expr(parser, fun)?;
+        expr(parser, fun)?;
         parser.expect(Token::Semi)?;
-        fun.term_return(a);
+        fun.ret();
         Ok(())
     } else {
         parser.expect(Token::Is)?;
         vardec(parser, fun)?;
         let start = fun.new_block();
-        fun.begin_block(start);
+        fun.select_block(start);
         block(parser, fun)?;
         parser.expect(Token::End)?;
         Ok(())
@@ -234,9 +191,9 @@ fn funbody(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
 // vardec -> { 'var' ID { ',' ID } ':' type_dec ';' }
 fn vardec(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     while parser.accept(Token::Var) {
-        fun.add_var(ident(parser)?);
+        fun.alloc(&ident(parser)?);
         while parser.accept(Token::Comma) {
-            fun.add_var(ident(parser)?);
+            fun.alloc(&ident(parser)?);
         }
         parser.expect(Token::Colon)?;
         let _typ = type_dec(parser)?;
@@ -282,8 +239,8 @@ fn block(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
 //      | 'while' clause 'do' block 'end'
 fn stmt(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     if parser.accept(Token::Return) {
-        let a = expr(parser, fun)?;
-        fun.term_return(a);
+        expr(parser, fun)?;
+        fun.ret();
         parser.expect(Token::Semi)?;
         Ok(())
     } else if parser.accept(Token::If) {
@@ -293,11 +250,11 @@ fn stmt(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
             let then = fun.new_block();
             clause(parser, fun)?;
             parser.expect(Token::Then)?;
-            fun.term_branch(then, els);
-            fun.begin_block(then);
+            fun.branch(then, els);
+            fun.select_block(then);
             block(parser, fun)?;
-            fun.term_jump(end);
-            fun.begin_block(els);
+            fun.jump(end);
+            fun.select_block(els);
             if !parser.accept(Token::Elsif) {
                 break;
             }
@@ -306,31 +263,31 @@ fn stmt(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
             block(parser, fun)?;
         }
         parser.expect(Token::End)?;
-        fun.term_jump(end);
-        fun.begin_block(end);
+        fun.jump(end);
+        fun.select_block(end);
         Ok(())
     } else if parser.accept(Token::While) {
         let cond = fun.new_block();
         let lop = fun.new_block();
         let end = fun.new_block();
 
-        fun.term_jump(cond);
-        fun.begin_block(cond);
+        fun.jump(cond);
+        fun.select_block(cond);
         clause(parser, fun)?;
         parser.expect(Token::Do)?;
-        fun.term_branch(lop, end);
-        fun.begin_block(lop);
+        fun.branch(lop, end);
+        fun.select_block(lop);
         block(parser, fun)?;
         parser.expect(Token::End)?;
-        fun.term_jump(cond);
-        fun.begin_block(end);
+        fun.jump(cond);
+        fun.select_block(end);
         Ok(())
     } else {
         let id = ident(parser)?;
         parser.expect(Token::Assign)?;
-        let a = expr(parser, fun)?;
+        expr(parser, fun)?;
         parser.expect(Token::Semi)?;
-        fun.add_store(&id, a);
+        fun.store(&id);
         Ok(())
     }
 }
@@ -361,7 +318,7 @@ fn stmt(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
 // clause -> [ 'not' ] expr ( '==' | '<' | '<=' | '>=' | '>' ) expr
 fn clause(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     let negate = parser.accept(Token::Not);
-    let a = expr(parser, fun)?;
+    expr(parser, fun)?;
 
     let mut op = if parser.accept(Token::EqualEqual) {
         Relation::Eq
@@ -379,25 +336,25 @@ fn clause(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
         op = op.negate()
     }
 
-    let b = expr(parser, fun)?;
-    fun.add_cmp(op, a, b);
+    expr(parser, fun)?;
+    fun.cmp(op);
     Ok(())
 }
 
 // expr -> ['-'] term { ('+' | '-') term }
-fn expr(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+fn expr(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     let has_minus = parser.accept(Token::Minus);
     let mut a = term(parser, fun)?;
     if has_minus {
-        a = fun.add_neg(a);
+        a = fun.neg();
     }
     loop {
         if parser.accept(Token::Plus) {
-            let b = term(parser, fun)?;
-            a = fun.add_add(a, b);
+            term(parser, fun)?;
+            a = fun.add();
         } else if parser.accept(Token::Minus) {
-            let b = term(parser, fun)?;
-            a = fun.add_sub(a, b);
+            term(parser, fun)?;
+            a = fun.sub();
         } else {
             break Ok(a);
         }
@@ -405,18 +362,18 @@ fn expr(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
 }
 
 // term <- atom { ('*' | '/' | '%') atom }
-fn term(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+fn term(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     let mut a = designator(parser, fun)?;
     loop {
         if parser.accept(Token::Times) {
-            let b = designator(parser, fun)?;
-            a = fun.add_mul(a, b);
+            designator(parser, fun)?;
+            a = fun.mul();
         } else if parser.accept(Token::Over) {
-            let b = designator(parser, fun)?;
-            a = fun.add_div(a, b);
+            designator(parser, fun)?;
+            a = fun.div();
         } else if parser.accept(Token::Modulo) {
-            let b = designator(parser, fun)?;
-            a = fun.add_mod(a, b);
+            designator(parser, fun)?;
+            a = fun.modulo();
         } else {
             break Ok(a);
         }
@@ -426,7 +383,7 @@ fn term(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
 //  designator <- atom { '(' [ expr {',' expr } ] ')' }
 
 //  designator <- atom
-fn designator(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+fn designator(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     atom(parser, fun)
 }
 /*
@@ -451,28 +408,27 @@ while parser.accept(Token::LParen){
 //  atom <- '(' expr ')'
 //  atom <- Integer
 //  atom <- Id [ '(' [ expr {',' expr } ] ')' ]
-fn atom(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<Value> {
+fn atom(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
     if parser.accept(Token::LParen) {
         let val = expr(parser, fun)?;
         parser.expect(Token::RParen)?;
         Ok(val)
     } else if parser.accept(Token::Integer) {
         let value = parser.lexer.number;
-        Ok(fun.add_const(value))
+        Ok(fun.constant(value))
     } else {
         let id = ident(parser)?;
-        let mut args = Vec::new();
         if parser.accept(Token::LParen) {
             if !parser.check(Token::RParen) {
-                args.push(expr(parser, fun)?);
+                expr(parser, fun)?;
                 while parser.accept(Token::Comma) {
-                    args.push(expr(parser, fun)?);
+                    expr(parser, fun)?;
                 }
             }
             parser.expect(Token::RParen)?;
-            Ok(fun.add_call(id, args))
+            Ok(fun.call(id))
         } else {
-            Ok(fun.add_load(&id))
+            Ok(fun.load(&id))
         }
     }
 }
