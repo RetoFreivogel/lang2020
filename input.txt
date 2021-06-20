@@ -1,50 +1,94 @@
-#fun test(a, b) : (Int, Int)Int is
-#    var c : Int;
-#    c :=  - a + b + 123;
-#    return c;
+#fun undef_err(a, b): (int, int)int is
+#    return a + b + c;
+#end
+#
+#fun syntax_err(a, b): (int, int)int is
+#    return a < b;
+#end
+#
+#fun arity_err(a, b): (int, int, int)int is
+#    return a + b;
+#end
+#
+#fun kind_err(a): int is
+#    return a + 2;
 #end
 
-fun fib(n) : (Int)Int is
-    if n >= 2 then
-        n := fib(n-1) + fib(n-2);
+fun mandelbrot(cx, cy) : (int,int)int is
+    var i := 0;
+    var x := cx;
+    var y := cy;
+    var temp := x;
+    while i < 16 do
+        temp := x;
+        i := i + 1;
+        x := x*x - y*y + cx; 
+        y := 2*temp*y + cy;
     end
-    return n;
+    return x*x + y*y;
 end
 
-#fun fib2(n,a,b) : (Int, Int, Int)Int is
-#    if n == 0 then
-#        return a;
-#    else
-#        return fib2(n-1, b, a+b);
+#fun fib(n) : (int)int is
+#    if n >= 2 then
+#        n := fib(n-1) + fib(n-2);
 #    end
+#    return n;
 #end
 
-#fun sign(i) : (Int)Int is
-#    if i < 0 then
-#        return -1;
-#    elsif i > 0 then
-#        return 1;
-#    else
-#        return 0;
+#fun fib2 :: (int, int, int)int;
+#fun fib2(n, a, b) : (int, int, int)int is
+#    if n > 0 then
+#        a := fib2(n-1, b, a+b);
 #    end
+#    return a;
 #end
 
-#fun abs(i) : (Int)Int is
+fun sign(i) : (int)int is
+    var s := 0;
+    if i < 0 then
+        s := -1;
+    end
+    if i > 0 then
+        s := 1;
+    end
+    return s;
+end
+
+#fun abs(i) : (int)int is
 #    if i < 0 then
 #        i := -i;
 #    end
 #    return i;
 #end
 
-fun fact(n) : (Int)Int is
-    if n < 2 then
-        return 1;
-    else
-        return fact(n-1) * n;
-    end
-end
+#declare
+#    fact, fib : (int)int;
+#end
+#def fact(n) is
+#    var p := 1;
+#    while n > 1 do
+#        p := p * n;
+#    end;
+#    return p;
+#end
 
-fun gcd(a, b) : (Int, Int)Int is 
+#fun choose, multichoose : (int, int)int;
+#def choose(n,k) = fact(n) / fact(k) / fact(n-k);
+#def multichoose(n,k) = choose(n+k-1, k);
+
+#fun choose(n, k) : (int, int)int is
+#    var product := 1;
+#    var i := 1;
+#    while k < n do
+#        product := product * n;
+#        product := product / i;
+#        n := n - 1;
+#        i := i + 1;
+#    end
+#    return product;
+#end
+
+fun gcd(a, b) : (int, int)int is 
     while not a == b do
         if a < b then
             b := b - a;
@@ -55,67 +99,40 @@ fun gcd(a, b) : (Int, Int)Int is
     return a;
 end
 
-fun sqrt(n) : (Int)Int is
-    var b, i : Int;
-    i := 0;
-    b := 2;
-    while i < 10 do
-        b := (b + n / b) / 2;
-        i := i + 1;
-    end
-    return b;
-end
-
-#fun min(a, b) : (Int,Int)Int is
-#    if a < b then 
-#        return a;
-#    else
-#        return b;
+#fun sqrt(n) : (int)int is
+#    var b := 2;
+#    var i := 0;
+#    while i < 10 do
+#        b := (b + n / b) / 2;
+#        i := i + 1;
 #    end
+#    return b;
 #end
 
-#fun max(a, b) : (Int,Int)Int is
-#    if a < b then 
-#        return b;
-#    else
-#        return a;
+#fun min(a, b) : (int,int)int is
+#    var m := a;
+#    if a > b then 
+#        m := b;
 #    end
+#    return m;
 #end
 
-#fun minmax(s) : (Bool)(Int, Int)Int is
-#    var f : (Int,Int)Int;
-#    if s then
-#        f := max;
-#    else
-#        f := min;
+#fun max(a, b) : (int,int)int is
+#    var m := b;
+#    if a < b then 
+#        m := a;
+#    end
+#    return m;
+#end
+    
+#fun pow(b, n) : (int,int)int is
+#    var f := 1; 
+#    while n > 0 do
+#        if n % 2 == 1 then
+#            f := f*b;
+#        end
+#        n := n / 2;
+#        b := b * b;
 #    end
 #    return f;
 #end
-
-#fun use_minmax(s, a, b) : (Bool, Int, Int)Int = minmax(s)(a,b);
-    
-#fun gcd2(a, b) : (Int,Int)Int is
-#    while not a == 0 and not b == 0 do
-#        if a < b then
-#            b := b % a;
-#        else
-#            a := a % b;
-#        end
-#    end
-#    return a + b;
-#end
-    
-# computes f*(b^n)
-fun pow(b, n) : (Int,Int)Int is
-    var f: Int;
-    f := 1; 
-    while n > 0 do
-        if n % 2 == 1 then
-            f := f*b;
-        end
-        n := n / 2;
-        b := b * b;
-    end
-    return f;
-end
-

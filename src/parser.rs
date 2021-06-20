@@ -6,9 +6,8 @@
     use combinators?
 */
 
-use crate::builder::{Function, FunctionBuilder, Type, Relation};
 use crate::lexer::{LexPos, Lexer, Token, TokenSet};
-use crate::strtab::Ident;
+use crate::strtab::{Ident, Type};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,19 +17,29 @@ pub enum CompileError {
         tried: TokenSet,
         found: Token,
     },
+    /*
     TypeErr {
         position: LexPos,
         left: Type,
         right: Type,
     },
+    MissingReturnErr {
+        position: LexPos,
+    },
+    */
+    ArityErr {
+        position: LexPos,
+        typ: Type,
+        arglen: usize,
+    },
+    KindErr {
+        position: LexPos,
+        typ: Type,
+    },
     UndefErr {
         position: LexPos,
         id: Ident,
-    },
-    GeneralErr {
-        position: LexPos,
-        msg: String,
-    },
+    }
 }
 
 type Parsing<T> = Result<T, CompileError>;
@@ -47,6 +56,7 @@ impl fmt::Display for CompileError {
                 "{} Syntax error:\n Expected: {}\n Found: {}",
                 position, tried, found
             ),
+            /*
             CompileError::TypeErr {
                 position,
                 left,
@@ -56,10 +66,30 @@ impl fmt::Display for CompileError {
                 "{} Type mismatch: Left side is {}. Right side is {}.",
                 position, left, right
             ),
+            CompileError::MissingReturnErr {
+                position,
+            } => writeln!(f, "{} Expected a return statement.", position),
+            */
+            CompileError::ArityErr {
+                position,
+                typ,
+                arglen,
+            } => writeln!(
+                f,
+                "{} Arity mismatch: Type is {}. But there are {} arguments.",
+                position, typ, arglen
+            ),
+            CompileError::KindErr {
+                position,
+                typ,
+            } => writeln!(
+                f,
+                "{} Kind mismatch: Expected a function type. Found {}.",
+                position, typ
+            ),
             CompileError::UndefErr { position, id } => {
                 writeln!(f, "{} Symbol Undefined: '{}'", position, id)
             }
-            CompileError::GeneralErr { position, msg } => writeln!(f, "{} {}", position, msg),
         }
     }
 }
@@ -70,6 +100,7 @@ pub struct Parser {
     current: Token,
     tried: TokenSet,
 }
+
 impl Parser {
     pub fn new_file(filename: String) -> Parser {
         let mut p = Parser {
@@ -81,9 +112,9 @@ impl Parser {
         p
     }
 
-    //error handling and parser utilities-------------------------------------------
+    //error handling and self utilities-------------------------------------------
 
-    fn syntax_err<T>(&mut self) -> Parsing<T> {
+    fn mark_syntax<T>(&mut self) -> Parsing<T> {
         let err = Err(CompileError::ParseErr {
             position: self.lexer.pos(),
             tried: self.tried,
@@ -93,12 +124,32 @@ impl Parser {
         err
     }
 
-    fn mark<T>(&mut self, text: &str) -> Parsing<T> {
-        self.current = Token::Error;
-        Err(CompileError::GeneralErr {
+    fn mark_undef<T>(&mut self, id: Ident) -> Parsing<T> {
+        let err = Err(CompileError::UndefErr {
             position: self.lexer.pos(),
-            msg: text.to_string(),
-        })
+            id,
+        });
+        self.current = Token::Error;
+        err
+    }
+
+    fn mark_arity<T>(&mut self, typ: Type, arglen: usize) -> Parsing<T> {
+        let err = Err(CompileError::ArityErr {
+            position: self.lexer.pos(),
+            typ,
+            arglen,
+        });
+        self.current = Token::Error;
+        err
+    }
+
+    fn mark_kind<T>(&mut self, typ: Type) -> Parsing<T> {
+        let err = Err(CompileError::KindErr {
+            position: self.lexer.pos(),
+            typ,
+        });
+        self.current = Token::Error;
+        err
     }
 
     fn check(&self, t: Token) -> bool {
@@ -117,325 +168,353 @@ impl Parser {
     }
 
     fn expect(&mut self, t: Token) -> Parsing<()> {
-        if self.check(t) {
-            self.current = self.lexer.next();
-            self.tried = TokenSet::new();
+        if self.accept(t) {
             Ok(())
         } else {
-            self.tried.set(t);
-            self.syntax_err()
+            self.mark_syntax()
         }
     }
 }
-//parser rules------------------------------------------------------------------
+//self rules------------------------------------------------------------------
 
-// module -> {item} EOF
-pub fn module(parser: &mut Parser) -> crate::builder::Module {
-    let mut items = Vec::new();
-    while !parser.accept(Token::Eof) {
-        if parser.check(Token::Fun) {
-            match item(parser) {
-                Ok(fun) => items.push(fun),
-                Err(e) => eprintln!("{}", e),
-            }
-        } else {
-            parser.current = parser.lexer.next();
-        }
-    }
-    crate::builder::Module { items }
-}
-
-//item -> 'fun' ID '(' [ ID { ',' ID } ] ')' ':' type_dec funbody
-fn item(parser: &mut Parser) -> Parsing<Function> {
-    parser.expect(Token::Fun)?;
-    let id = ident(parser)?;
-
-    let mut args = Vec::new();
-    parser.expect(Token::LParen)?;
-    if !parser.check(Token::RParen) {
-        args.push(ident(parser)?);
-        while parser.accept(Token::Comma) {
-            args.push(ident(parser)?);
-        }
-    }
-    parser.expect(Token::RParen)?;
-    parser.expect(Token::Colon)?;
-    let typ = type_dec(parser)?;
-
-    let mut fun = FunctionBuilder::new(id, args, typ);
-
-    funbody(parser, &mut fun)?;
-    let fun = fun.done();
-    Ok(fun)
-}
-
-// funbody  '=' expr ';'
-// funbody -> 'is' vardec block 'end'
-fn funbody(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    if parser.accept(Token::Equal) {
-        expr(parser, fun)?;
-        parser.expect(Token::Semi)?;
-        fun.ret();
-        Ok(())
-    } else {
-        parser.expect(Token::Is)?;
-        vardec(parser, fun)?;
-        let start = fun.new_block();
-        fun.select_block(start);
-        block(parser, fun)?;
-        parser.expect(Token::End)?;
-        Ok(())
-    }
-}
-
-// vardec -> { 'var' ID { ',' ID } ':' type_dec ';' }
-fn vardec(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    while parser.accept(Token::Var) {
-        fun.alloc(&ident(parser)?);
-        while parser.accept(Token::Comma) {
-            fun.alloc(&ident(parser)?);
-        }
-        parser.expect(Token::Colon)?;
-        let _typ = type_dec(parser)?;
-        parser.expect(Token::Semi)?;
-    }
-    Ok(())
-}
-
-// type_dec <- '(' [ Id { ',' Id } ] ')' Id | Id
-fn type_dec(parser: &mut Parser) -> Parsing<Type> {
-    if parser.accept(Token::LParen) {
-        let mut args = Vec::new();
-        if !parser.check(Token::RParen) {
-            args.push(ident(parser)?);
-            while parser.accept(Token::Comma) {
-                args.push(ident(parser)?);
+impl Parser{
+    // module -> {item} EOF
+    pub fn module(&mut self) -> AstMod {
+        let mut items = Vec::new();
+        while !self.accept(Token::Eof) {
+            if self.check(Token::Fun) {
+                match self.item() {
+                    Ok(fun) => items.push(fun),
+                    Err(e) => eprintln!("{}", e),
+                }
+            } else {
+                self.current = self.lexer.next();
             }
         }
-        parser.expect(Token::RParen)?;
-        let ret = ident(parser)?;
-        Ok(Type::Func { args, ret })
-    } else {
-        let id = ident(parser)?;
-        Ok(Type::Id(id))
-    }
-}
-
-// block -> { stmt } [ "return" expr ]
-fn block(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    while parser.check(Token::If)
-        || parser.check(Token::While)
-        || parser.check(Token::Ident)
-        || parser.check(Token::Return)
-    {
-        stmt(parser, fun)?;
-    }
-    Ok(())
-}
-
-// stmt = ID ':=' expr ';'
-//      | 'return' expr ';'
-//      | 'if' clause 'then' block {'elsif' clause 'then' block} ['else' block] 'end'
-//      | 'while' clause 'do' block 'end'
-fn stmt(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    if parser.accept(Token::Return) {
-        expr(parser, fun)?;
-        fun.ret();
-        parser.expect(Token::Semi)?;
-        Ok(())
-    } else if parser.accept(Token::If) {
-        let end = fun.new_block();
-        loop {
-            let els = fun.new_block();
-            let then = fun.new_block();
-            clause(parser, fun)?;
-            parser.expect(Token::Then)?;
-            fun.branch(then, els);
-            fun.select_block(then);
-            block(parser, fun)?;
-            fun.jump(end);
-            fun.select_block(els);
-            if !parser.accept(Token::Elsif) {
-                break;
-            }
-        }
-        if parser.accept(Token::Else) {
-            block(parser, fun)?;
-        }
-        parser.expect(Token::End)?;
-        fun.jump(end);
-        fun.select_block(end);
-        Ok(())
-    } else if parser.accept(Token::While) {
-        let cond = fun.new_block();
-        let lop = fun.new_block();
-        let end = fun.new_block();
-
-        fun.jump(cond);
-        fun.select_block(cond);
-        clause(parser, fun)?;
-        parser.expect(Token::Do)?;
-        fun.branch(lop, end);
-        fun.select_block(lop);
-        block(parser, fun)?;
-        parser.expect(Token::End)?;
-        fun.jump(cond);
-        fun.select_block(end);
-        Ok(())
-    } else {
-        let id = ident(parser)?;
-        parser.expect(Token::Assign)?;
-        expr(parser, fun)?;
-        parser.expect(Token::Semi)?;
-        fun.store(&id);
-        Ok(())
-    }
-}
-/*
-// expr -> conjunction {'or' conjunction}
-    fn expr(&mut self) -> Parsing<Type>{
-        let typ = self.conjunction()?;
-        while parser.accept(Token::Or){
-            let conj_typ = self.conjunction()?;
-            self.typecheck(&typ, &conj_typ)?;
-            self.builder.or();
-        }
-        Ok(typ)
+        AstMod{items}
     }
 
-// conjunction -> relation { 'and' relation }
-    fn conjunction(&mut self) -> Parsing<Type>{
-        let typ = self.relation()?;
-        while parser.accept(Token::And){
-            let rel_typ = self.relation()?;
-            self.typecheck(&typ, &rel_typ)?;
-            self.builder.and();
-        }
-        Ok(typ)
-    }
-*/
-
-// clause -> [ 'not' ] expr ( '==' | '<' | '<=' | '>=' | '>' ) expr
-fn clause(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    let negate = parser.accept(Token::Not);
-    expr(parser, fun)?;
-
-    let mut op = if parser.accept(Token::EqualEqual) {
-        Relation::Eq
-    } else if parser.accept(Token::LessThan) {
-        Relation::Lt
-    } else if parser.accept(Token::GreaterThan) {
-        Relation::Gt
-    } else if parser.accept(Token::LessEqual) {
-        Relation::Le
-    } else {
-        parser.expect(Token::GreaterEqual)?;
-        Relation::Ge
-    };
-    if negate {
-        op = op.negate()
-    }
-
-    expr(parser, fun)?;
-    fun.cmp(op);
-    Ok(())
-}
-
-// expr -> ['-'] term { ('+' | '-') term }
-fn expr(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    let has_minus = parser.accept(Token::Minus);
-    let mut a = term(parser, fun)?;
-    if has_minus {
-        a = fun.neg();
-    }
-    loop {
-        if parser.accept(Token::Plus) {
-            term(parser, fun)?;
-            a = fun.add();
-        } else if parser.accept(Token::Minus) {
-            term(parser, fun)?;
-            a = fun.sub();
-        } else {
-            break Ok(a);
-        }
-    }
-}
-
-// term <- atom { ('*' | '/' | '%') atom }
-fn term(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    let mut a = designator(parser, fun)?;
-    loop {
-        if parser.accept(Token::Times) {
-            designator(parser, fun)?;
-            a = fun.mul();
-        } else if parser.accept(Token::Over) {
-            designator(parser, fun)?;
-            a = fun.div();
-        } else if parser.accept(Token::Modulo) {
-            designator(parser, fun)?;
-            a = fun.modulo();
-        } else {
-            break Ok(a);
-        }
-    }
-}
-
-//  designator <- atom { '(' [ expr {',' expr } ] ')' }
-
-//  designator <- atom
-fn designator(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    atom(parser, fun)
-}
-/*
-while parser.accept(Token::LParen){
-    let mut args = Vec::new();
-    if !parser.check(Token::RParen){
-        loop{
-            args.push(self.expr()?);
-            if !parser.accept(Token::Comma){
-                break
-            }
-        }
-    }
-    parser.expect(Token::RParen)?;
-    let mut fun_typ = FuncType::from_args(args).into_type();
-    fun_typ = self.typecheck(&typ, &fun_typ)?;
-    self.builder.icall(typ);
-    typ = fun_typ.get_function().ret.clone();
-}
-*/
-
-//  atom <- '(' expr ')'
-//  atom <- Integer
-//  atom <- Id [ '(' [ expr {',' expr } ] ')' ]
-fn atom(parser: &mut Parser, fun: &mut FunctionBuilder) -> Parsing<()> {
-    if parser.accept(Token::LParen) {
-        let val = expr(parser, fun)?;
-        parser.expect(Token::RParen)?;
-        Ok(val)
-    } else if parser.accept(Token::Integer) {
-        let value = parser.lexer.number;
-        Ok(fun.constant(value))
-    } else {
-        let id = ident(parser)?;
-        if parser.accept(Token::LParen) {
-            if !parser.check(Token::RParen) {
-                expr(parser, fun)?;
-                while parser.accept(Token::Comma) {
-                    expr(parser, fun)?;
+    // type_dec <- '(' [ Id { ',' Id } ] ')' Id | Id
+    fn type_dec(&mut self) -> Parsing<Type> {
+        if self.accept(Token::LParen) {
+            let mut args = Type::int(); // TODO create void type
+            if !self.check(Token::RParen) {
+                args = self.type_dec()?;
+                while self.accept(Token::Comma) {
+                    args = Type::cons(args, self.type_dec()?);
                 }
             }
-            parser.expect(Token::RParen)?;
-            Ok(fun.call(id))
+            self.expect(Token::RParen)?;
+            let ret = self.type_dec()?;
+            Ok(Type::func(args, ret))
         } else {
-            Ok(fun.load(&id))
+            let id = self.ident()?;
+            if id == Ident::ident("int"){
+                Ok(Type::int())
+            }else{
+                self.mark_undef(id)
+            }
+        }
+    }
+
+    //item -> 'fun' ID '(' [ ID { ',' ID } ] ')' ':' type_dec funbody
+    // funbody -> '=' expr ';'
+    // funbody -> 'is' {'var' declaration} block 'return' expr 'end'
+    fn item(&mut self) -> Parsing<AstItem> {
+        self.expect(Token::Fun)?;
+        let id = self.ident()?;
+
+        let mut args = Vec::new();
+        self.expect(Token::LParen)?;
+        if !self.check(Token::RParen) {
+            args.push(self.ident()?);
+            while self.accept(Token::Comma) {
+                args.push(self.ident()?);
+            }
+        }
+        self.expect(Token::RParen)?;
+        self.expect(Token::Colon)?;
+        let typ = self.type_dec()?;
+ 
+        if let Some(count) = typ.arg_count(){
+            if count != args.len(){
+                self.mark_arity(typ.clone(), args.len())?;
+            }
+        }else{
+            self.mark_kind(typ.clone())?;
+        }
+
+        let mut stmts = Vec::new();
+        let ret;
+        if self.accept(Token::Equal) {
+            ret = self.expr()?;
+            self.expect(Token::Semi)?;
+        } else {
+            self.expect(Token::Is)?;
+
+            stmts = self.block()?;
+
+            self.expect(Token::Return)?;
+            ret = self.expr()?;
+            self.expect(Token::Semi)?;
+            self.expect(Token::End)?;
+        };
+        let fun = AstFun{
+            id,
+            typ,
+            args,
+            stmts,
+            ret,
+        };
+        Ok(AstItem::Fun(fun))
+    }
+
+    // block -> { stmt }
+    fn block(&mut self) -> Parsing<Vec<AstStmt>> {
+        let mut stmts = Vec::new();
+        while self.accept(Token::Var){
+            stmts.push(self.declaration()?);
+        }
+        while self.check(Token::If)
+            || self.check(Token::While)
+            || self.check(Token::Ident)
+        {
+            stmts.push(self.stmt()?);
+        }
+        Ok(stmts)
+    }
+
+    // vardec -> ID [ ':' type_dec ] ':=' expr ';' 
+    fn declaration(&mut self) -> Parsing<AstStmt> {
+        let id = self.ident()?;
+        if self.accept(Token::Colon){
+            let _typ = self.type_dec()?;
+        }
+        self.expect(Token::Assign)?;
+        let expr = self.expr()?;
+        self.expect(Token::Semi)?;
+        Ok(AstStmt::Declaration(id, expr))
+    }
+
+    // stmt = ID ':=' expr ';'
+    //      | 'if' relation 'then' block {'elsif' relation 'then' block} ['else' block] 'end'
+    //      | 'while' relation 'do' block 'end'
+    fn stmt(&mut self) -> Parsing<AstStmt> {
+        if self.accept(Token::If) {
+            let cond = self.relation()?;
+            self.expect(Token::Then)?;
+            let then = self.block()?;
+            let mut elifs = Vec::new();
+            while self.accept(Token::Elsif){
+                let cond = self.relation()?;
+                self.expect(Token::Then)?;
+                let then = self.block()?;
+                elifs.push((cond, then));
+            }
+            let els = if self.accept(Token::Else){
+                self.block()?
+            }else{
+                Vec::new()
+            };
+            self.expect(Token::End)?;
+            Ok(AstStmt::If(cond, then, elifs, els))
+        } else if self.accept(Token::While) {
+            let rel = self.relation()?;
+            self.expect(Token::Do)?;
+            let lop = self.block()?;
+            self.expect(Token::End)?;
+            Ok(AstStmt::While(rel, lop))
+        } else {
+            let pos = self.lexer.pos();
+            let id = self.ident()?;
+            self.expect(Token::Assign)?;
+            let expr = self.expr()?;
+            self.expect(Token::Semi)?;
+            Ok(AstStmt::Assign(id, pos, expr))
+        }
+    }
+
+    // clause -> [ 'not' ] expr ( '==' | '<' | '<=' | '>=' | '>' ) expr
+    fn relation(&mut self) -> Parsing<AstRel> {
+        let has_not = self.accept(Token::Not);
+        let lhs = self.expr()?;
+        let mut op = if self.accept(Token::EqualEqual) {
+            RelOp::Eq
+        } else if self.accept(Token::LessThan) {
+            RelOp::Lt
+        } else if self.accept(Token::GreaterThan) {
+            RelOp::Gt
+        } else if self.accept(Token::LessEqual) {
+            RelOp::Le
+        } else {
+            self.expect(Token::GreaterEqual)?;
+            RelOp::Ge
+        };
+        if has_not {
+            op = op.not()
+        }
+        let rhs = self.expr()?;
+        Ok(AstRel{rhs, lhs, op})
+    }
+
+    // expr -> ['-'] term { ('+' | '-') term }
+    fn expr(&mut self) -> Parsing<AstExpr> {
+        let has_minus = self.accept(Token::Minus);
+        let mut lhs = self.term()?;
+        if has_minus {
+            lhs = AstExpr::Uminus(Box::new(lhs));
+        }
+        loop {
+            if self.accept(Token::Plus) {
+                let rhs = self.term()?;
+                lhs = AstExpr::Plus(Box::new(lhs), Box::new(rhs));
+            } else if self.accept(Token::Minus) {
+                let rhs = self.term()?;
+                lhs = AstExpr::Minus(Box::new(lhs), Box::new(rhs));
+            } else {
+                break Ok(lhs);
+            }
+        }
+    }
+
+    // term <- atom { ('*' | '/' | '%') atom }
+    fn term(&mut self) -> Parsing<AstExpr> {
+        let mut lhs = self.designator()?;
+        loop {
+            if self.accept(Token::Times) {
+                let rhs = self.term()?;
+                lhs = AstExpr::Times(Box::new(lhs), Box::new(rhs));
+            } else if self.accept(Token::Over) {
+                let rhs = self.term()?;
+                lhs = AstExpr::Divide(Box::new(lhs), Box::new(rhs));
+            } else if self.accept(Token::Modulo) {
+                let rhs = self.term()?;
+                lhs = AstExpr::Modulo(Box::new(lhs), Box::new(rhs));
+            } else {
+                break Ok(lhs);
+            }
+        }
+    }
+
+    //  designator <- atom
+    fn designator(&mut self) -> Parsing<AstExpr> {
+        self.atom()
+    }
+
+    //  atom <- '(' expr ')'
+    //  atom <- Integer
+    //  atom <- Id [ '(' [ expr {',' expr } ] ')' ]
+    fn atom(&mut self) -> Parsing<AstExpr> {
+        if self.accept(Token::LParen) {
+            let val = self.expr()?;
+            self.expect(Token::RParen)?;
+            Ok(val)
+        } else if self.accept(Token::Integer) {
+            let value = self.lexer.number;
+            Ok(AstExpr::Integer(value))
+        } else {
+            let id = self.ident()?;
+
+            if self.accept(Token::LParen) {
+                let mut args = Vec::new();
+                if !self.check(Token::RParen) {
+                    let a = self.expr()?;
+                    args.push(a);
+                    while self.accept(Token::Comma) {
+                        let a = self.expr()?;
+                        args.push(a);
+                    }
+                }
+                self.expect(Token::RParen)?;
+                Ok(AstExpr::Call(id, args))
+            } else {
+                Ok(AstExpr::Id(id))
+            }
+        }
+    }
+
+    //ident <- ID
+    fn ident(&mut self) -> Parsing<Ident> {
+        let id = self.lexer.word.clone();
+        self.expect(Token::Ident)?;
+        Ok(id)
+    }
+}
+
+#[derive(Debug)]
+pub struct AstMod{
+    pub items: Vec<AstItem>,
+}
+
+#[derive(Debug)]
+pub enum AstItem{
+    Fun(AstFun),
+}
+
+#[derive(Debug)]
+pub struct AstFun{
+    pub id: Ident,
+    pub typ: Type,
+    pub args: Vec<Ident>,
+    pub stmts: Vec<AstStmt>,
+    pub ret: AstExpr,
+}
+
+#[derive(Debug)]
+pub enum AstStmt{
+    While(AstRel, Vec<AstStmt>),
+    If(AstRel, Vec<AstStmt>, Vec<(AstRel, Vec<AstStmt>)>, Vec<AstStmt>),
+    Declaration(Ident, AstExpr),
+    Assign(Ident, LexPos, AstExpr),
+}
+
+#[derive(Debug)]
+pub struct AstRel{
+    pub lhs: AstExpr,
+    pub rhs: AstExpr,
+    pub op: RelOp
+}
+
+#[derive(Debug)]
+pub enum AstExpr{
+    Integer(usize),
+    Id(Ident),
+    Call(Ident, Vec<AstExpr>),
+    Uminus(Box<AstExpr>),
+    Plus(Box<AstExpr>, Box<AstExpr>),
+    Minus(Box<AstExpr>, Box<AstExpr>),
+    Times(Box<AstExpr>, Box<AstExpr>),
+    Divide(Box<AstExpr>, Box<AstExpr>),
+    Modulo(Box<AstExpr>, Box<AstExpr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelOp {
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+}
+pub const RELOP_CHARS: [&'static str; 6] = ["==", "<>", "<", ">", "<=", ">="];
+
+impl fmt::Display for RelOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        RELOP_CHARS[*self as usize].fmt(f)
+    }
+}
+
+impl RelOp {
+    pub fn not(self) -> RelOp {
+        match self {
+            RelOp::Eq => RelOp::Neq,
+            RelOp::Neq => RelOp::Eq,
+            RelOp::Lt => RelOp::Ge,
+            RelOp::Gt => RelOp::Le,
+            RelOp::Le => RelOp::Gt,
+            RelOp::Ge => RelOp::Lt,
         }
     }
 }
 
-//ident <- ID
-fn ident(parser: &mut Parser) -> Parsing<Ident> {
-    let id = parser.lexer.word.clone();
-    parser.expect(Token::Ident)?;
-    Ok(id)
-}
