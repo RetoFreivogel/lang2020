@@ -350,7 +350,6 @@ impl FunctionBuilder {
     fn ret(&mut self, blk: BlockId, a: Value) -> Value{
         let op = Operation::Ret;
         let vals = vec![a];
-        let b = UNDEF;
         let num = 0;
         self.append_instruction(op, blk, vals, num)
     }
