@@ -18,9 +18,8 @@ fun mandelbrot(cx, cy) : (int,int)int is
     var i := 0;
     var x := cx;
     var y := cy;
-    var temp := x;
     while i < 16 do
-        temp := x;
+        var temp := x;
         i := i + 1;
         x := x*x - y*y + cx; 
         y := 2*temp*y + cy;
@@ -47,9 +46,10 @@ fun sign(i) : (int)int is
     var s := 0;
     if i < 0 then
         s := -1;
-    end
-    if i > 0 then
+    elsif i > 0 then
         s := 1;
+    else
+        s := 0;
     end
     return s;
 end
